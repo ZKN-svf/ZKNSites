@@ -92,6 +92,11 @@ export default {
           'Responda com UM ÚNICO objeto JSON válido. Nada antes, nada depois. Sem markdown, sem blocos de código, sem texto extra.',
           'O objeto deve ter: "reply" (confirmação curta em português, máx 10 palavras) e "action" com uma das ações abaixo.',
           'AÇÕES:',
+          '{"reply":"...","action":"build","theme":{"background":"#0b0b0f","color":"#ffffff"},"sections":[ ... ]}',
+          'Use "build" SEMPRE que o usuário pedir para criar/fazer/montar um site, landing page, portfólio, loja ou página completa. Construa o site INTEIRO de uma vez com EXATAMENTE 5 seções: header, hero, serviços (grid com 3 cards), chamada final e footer. Máximo de 3 filhos por seção e 3 cards no grid. Escreva textos reais e coerentes com o pedido, não placeholders. Seja enxuto, sem estilos desnecessários.',
+          'Cada item de "sections" é: {"type":"header|section|footer|grid|card|heading|text|button|link|image|icon|divider|spacer|menu","tag":"h1","text":"...","styles":{"fontSize":"48px","padding":"80px 6%"},"children":[ ... ]}.',
+          'Estilos são strings CSS normais (padding, background, color, fontSize, fontWeight, textAlign, display, gridTemplateColumns, gap, borderRadius, maxWidth, margin). Aninhe filhos em "children" para montar cards e grids.',
+          'Exemplo de seção: {"type":"section","styles":{"padding":"100px 6%","textAlign":"center"},"children":[{"type":"heading","tag":"h1","text":"Título","styles":{"fontSize":"64px","fontWeight":"800"}},{"type":"text","text":"Descrição","styles":{"fontSize":"19px","maxWidth":"620px","margin":"0 auto 24px"}},{"type":"button","text":"Começar","styles":{"background":"#eab308","color":"#000","padding":"14px 30px","borderRadius":"10px","display":"inline-block","fontWeight":"700"}}]}',
           '{"reply":"...","action":"add","component":"heading|text|button|link|image|section|divider|spacer","text":"texto do elemento","src":"URL da imagem se image"}',
           '{"reply":"...","action":"text","text":"novo texto"}',
           '{"reply":"...","action":"color","color":"#RRGGBB"}',
@@ -100,7 +105,8 @@ export default {
           '{"reply":"...","action":"rename","name":"novo nome"}',
           '{"reply":"...","action":"delete"}',
           'REGRAS:',
-          '- Se o usuário pedir para criar/colocar/adicionar algo, use "add" e preencha o texto exato pedido.',
+          '- Se o usuário pedir para criar/fazer/montar UM SITE ou uma página completa, use SEMPRE "build" com várias seções. Nunca use "add" para isso.',
+          '- Se o usuário pedir para criar/colocar/adicionar UM elemento específico, use "add" e preencha o texto exato pedido.',
           '- Se pedir para mudar um texto, use "text" com o texto exato pedido.',
           '- Se pedir uma cor sem dizer onde, use "color" para o elemento selecionado (ou "pageBg" se falar do fundo/página).',
           '- Converta nomes de cores para hexadecimal (azul=#2563eb, vermelho=#dc2626, verde=#16a34a, amarelo=#eab308, preto=#000000, branco=#ffffff).',
@@ -110,29 +116,42 @@ export default {
         ].join('\n');
 
         try {
-          const resp = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
-            messages: [
-              { role: 'system', content: system },
-              { role: 'user', content: message },
-            ],
-            max_tokens: 300,
-            temperature: 0.2,
-          });
-          const rr: any = resp;
-          let bruto = String(
-            rr?.choices?.[0]?.message?.content ??
-            rr?.choices?.[0]?.text ??
-            (typeof rr?.response === 'string' ? rr.response : '') ??
-            ''
-          ).trim();
-          bruto = bruto.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-          const ini = bruto.indexOf('{'), fim = bruto.lastIndexOf('}');
-          if (ini >= 0 && fim > ini) bruto = bruto.slice(ini, fim + 1);
+          const querSite = /crie|criar|monte|montar|faça|faca|construa|site|página|pagina|landing|portfólio|portfolio|loja/i.test(message);
+          const permitidas = ['build', 'add', 'text', 'color', 'pageBg', 'fontSize', 'rename', 'delete'];
           let acao: any = null;
-          try { acao = JSON.parse(bruto); } catch { acao = null; }
-          const permitidas = ['add', 'text', 'color', 'pageBg', 'fontSize', 'rename', 'delete'];
-          if (!acao || !permitidas.includes(String(acao.action))) {
-            // fallback: se o modelo não obedeceu, extrai um texto simples da mensagem
+
+          // Até 2 tentativas quando o pedido é um site completo (o modelo é não-determinístico)
+          for (let tentativa = 0; tentativa < (querSite ? 2 : 1) && !acao; tentativa++) {
+            const resp = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+              messages: [
+                { role: 'system', content: system + (tentativa ? '\nATENÇÃO: responda APENAS o JSON com a ação "build" e suas seções.' : '') },
+                { role: 'user', content: message },
+              ],
+              max_tokens: querSite ? 6000 : 300,
+              temperature: tentativa ? 0 : 0.2,
+            });
+            const rr: any = resp;
+            let bruto = String(
+              rr?.choices?.[0]?.message?.content ??
+              rr?.choices?.[0]?.text ??
+              (typeof rr?.response === 'string' ? rr.response : '') ??
+              ''
+            ).trim();
+            bruto = bruto.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+            const ini = bruto.indexOf('{'), fim = bruto.lastIndexOf('}');
+            if (ini >= 0 && fim > ini) bruto = bruto.slice(ini, fim + 1);
+            try { acao = JSON.parse(bruto); } catch { acao = null; }
+            if (!acao) {
+              const sufixos = ['}', ']}', '}}', '}]}', '}}]'];
+              for (const suf of sufixos) {
+                try { acao = JSON.parse(bruto + suf); break; } catch { /* próximo */ }
+              }
+            }
+            if (acao && !permitidas.includes(String(acao.action))) acao = null;
+            if (querSite && acao && acao.action !== 'build') acao = null;
+          }
+
+          if (!acao) {
             const texto = message.replace(/^(coloque|adicione|adicionar|crie|escreva|mude o texto para|troque o texto para)\s*/i, '').slice(0, 120);
             acao = { reply: 'Feito!', action: 'add', component: 'text', text: texto };
           }

@@ -1030,9 +1030,50 @@ function alvoIA() {
   walk(state.doc.root || { children: [] });
   return achado;
 }
+function noFromIA(def) {
+  if (!def || typeof def !== 'object') return null;
+  const TAGS = {
+    heading: 'h2', text: 'p', button: 'button', link: 'a', image: 'img',
+    section: 'section', header: 'header', footer: 'footer', grid: 'div',
+    card: 'article', icon: 'span', divider: 'hr', spacer: 'div', menu: 'nav', list: 'ul',
+  };
+  const NOMES = {
+    heading: 'Título', text: 'Texto', button: 'Botão', link: 'Link', image: 'Imagem',
+    section: 'Seção', header: 'Cabeçalho', footer: 'Rodapé', grid: 'Grade',
+    card: 'Cartão', icon: 'Ícone', divider: 'Divisor', spacer: 'Espaço', menu: 'Menu', list: 'Lista',
+  };
+  const tipo = String(def.type || 'section');
+  const n = { id: uid(), type: tipo, name: String(def.name || NOMES[tipo] || tipo), styles: {} };
+  const tag = String(def.tag || TAGS[tipo] || 'div');
+  if (tag !== TAGS[tipo]) n.tag = tag;
+  for (const k of ['text', 'html', 'src', 'href', 'alt']) {
+    if (def[k] !== undefined) n[k] = String(def[k]);
+  }
+  for (const [k, v] of Object.entries(def.styles || {})) {
+    if (v !== undefined && v !== null && v !== '') n.styles[k] = { [state.device]: String(v) };
+  }
+  if (Array.isArray(def.children) && def.children.length) {
+    n.children = def.children.map(noFromIA).filter(Boolean);
+  }
+  return n;
+}
 function aplicarAcaoIA(a) {
   if (!a || !a.action) return false;
   const acao = a.action;
+
+  if (acao === 'build') {
+    const secs = Array.isArray(a.sections) ? a.sections.map(noFromIA).filter(Boolean) : [];
+    if (!secs.length) return false;
+    snapshot();
+    if (a.theme && typeof a.theme === 'object') {
+      for (const [k, v] of Object.entries(a.theme)) {
+        if (v) state.doc.root.styles[k] = { [state.device]: String(v) };
+      }
+    }
+    state.doc.root.children = secs;
+    renderCanvas(); selectNode(null); renderTree(); scheduleSave();
+    return true;
+  }
 
   if (acao === 'add') {
     snapshot();
