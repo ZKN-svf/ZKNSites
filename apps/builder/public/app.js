@@ -282,6 +282,125 @@ function nodeHTML(n) {
   if (tag === 'a') return `<a ${attrs} href="${esc(n.href || '#')}">${inner}</a>`;
   return `<${tag} ${attrs}>${inner}</${tag}>`;
 }
+function getStyleVal(n, key, bp = state.device) {
+  const v = n.styles?.[key];
+  return v && typeof v === 'object' ? (v[bp] ?? v.desktop ?? '') : (v ?? '');
+}
+function setStyleVal(n, key, val, bp = state.device) {
+  n.styles = n.styles || {};
+  const cur = n.styles[key];
+  if (cur && typeof cur === 'object') cur[bp] = val;
+  else n.styles[key] = { [bp]: val };
+}
+function px(v) { return parseFloat(String(v || '').replace('px', '')) || 0; }
+
+// Overlay flutuante de seleção: move e redimensiona com o mouse
+function updateSelectionOverlay() {
+  const old = $('#selOverlay'); if (old) old.remove();
+  const canvas = $('#canvas');
+  const found = state.selectedId ? findNode(state.doc.root, state.selectedId) : null;
+  if (!found || !canvas) return;
+  const target = canvas.querySelector(`[data-zn-id="${state.selectedId}"]`);
+  if (!target) return;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'selOverlay';
+  overlay.className = 'sel-overlay';
+  canvas.appendChild(overlay);
+
+  const n = found.node;
+  const rect = () => target.getBoundingClientRect();
+  const cRect = () => canvas.getBoundingClientRect();
+
+  function draw() {
+    const r = rect(), c = cRect();
+    overlay.style.left = (r.left - c.left) + 'px';
+    overlay.style.top = (r.top - c.top) + 'px';
+    overlay.style.width = r.width + 'px';
+    overlay.style.height = r.height + 'px';
+    const tag = document.createElement('div');
+    tag.className = 'sel-tag';
+    tag.textContent = n.name || n.type;
+    overlay.appendChild(tag);
+    // alças
+    ['nw','ne','sw','se'].forEach(pos => {
+      const h = document.createElement('div');
+      h.className = 'sel-handle ' + pos;
+      h.dataset.handle = pos;
+      overlay.appendChild(h);
+    });
+  }
+  draw();
+
+  // MOVER com o mouse (arrastar dentro do overlay)
+  overlay.onpointerdown = (e) => {
+    if (e.target.dataset.handle) return; // alça cuida do resize
+    e.preventDefault(); e.stopPropagation();
+    snapshot();
+    const startX = e.clientX, startY = e.clientY;
+    const l0 = px(getStyleVal(n, 'left')), t0 = px(getStyleVal(n, 'top'));
+    n.styles.position = { [state.device]: 'absolute' };
+    const move = (ev) => {
+      setStyleVal(n, 'left', (l0 + ev.clientX - startX) + 'px');
+      setStyleVal(n, 'top', (t0 + ev.clientY - startY) + 'px');
+      applyLiveStyle(target, n);
+      draw2();
+    };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); scheduleSave(); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  // REDIMENSIONAR com as alças
+  $$('.sel-handle', overlay).forEach(h => {
+    h.onpointerdown = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      snapshot();
+      const pos = h.dataset.handle;
+      const startX = e.clientX, startY = e.clientY;
+      const w0 = rect().width, h0 = rect().height;
+      const l0 = px(getStyleVal(n, 'left')), t0 = px(getStyleVal(n, 'top'));
+      n.styles.position = { [state.device]: 'absolute' };
+      const move = (ev) => {
+        const dx = ev.clientX - startX, dy = ev.clientY - startY;
+        let w = w0, hh = h0, l = l0, t = t0;
+        if (pos.includes('e')) w = Math.max(20, w0 + dx);
+        if (pos.includes('s')) hh = Math.max(20, h0 + dy);
+        if (pos.includes('w')) { w = Math.max(20, w0 - dx); l = l0 + dx; }
+        if (pos.includes('n')) { hh = Math.max(20, h0 - dy); t = t0 + dy; }
+        setStyleVal(n, 'width', Math.round(w) + 'px');
+        setStyleVal(n, 'height', Math.round(hh) + 'px');
+        setStyleVal(n, 'left', Math.round(l) + 'px');
+        setStyleVal(n, 'top', Math.round(t) + 'px');
+        applyLiveStyle(target, n);
+        draw2();
+      };
+      const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); scheduleSave(); renderProperties(); };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    };
+  });
+
+  function draw2() {
+    const r = target.getBoundingClientRect(), c = canvas.getBoundingClientRect();
+    overlay.style.left = (r.left - c.left) + 'px';
+    overlay.style.top = (r.top - c.top) + 'px';
+    overlay.style.width = r.width + 'px';
+    overlay.style.height = r.height + 'px';
+  }
+
+  // Atualiza overlay quando a janela rola ou redimensiona
+  const onScroll = () => draw2();
+  canvas.addEventListener('scroll', onScroll, { once: false });
+}
+function applyLiveStyle(el, n) {
+  const bp = state.device;
+  ['position','left','top','width','height'].forEach(k => {
+    const v = getStyleVal(n, k, bp);
+    if (v) el.style.setProperty(k, v);
+  });
+}
+
 function renderCanvas() {
   const canvas = $('#canvas'); if (!canvas || !state.doc) return;
   canvas.className = state.device;
@@ -293,6 +412,7 @@ function renderCanvas() {
       el.classList.add('selected');
       state.selectedId = el.dataset.znId;
       renderProperties();
+      updateSelectionOverlay();
     };
     // drag & drop de componentes
     el.ondragover = (e) => { e.preventDefault(); el.classList.add('drop-target'); };
@@ -313,7 +433,9 @@ function renderCanvas() {
   canvas.onclick = () => {
     $$('[data-zn-id].selected', canvas).forEach(x => x.classList.remove('selected'));
     state.selectedId = null; renderProperties();
+    const ov = $('#selOverlay'); if (ov) ov.remove();
   };
+  updateSelectionOverlay();
 }
 function newComponent(type) {
   const defaults = {
@@ -377,6 +499,12 @@ function renderProperties() {
       <div class="prop"><label>Texto</label><input id="propText" value="${esc(n.text || '')}"></div>
       <div class="prop"><label>Conteúdo</label><input id="propContent" value="${esc(n.html || '')}" placeholder="HTML (opcional)"></div>
       <div class="prop"><label>Imagem/Link</label><input id="propSrc" value="${esc(n.src || n.href || '')}"></div>
+      ${n.type === 'image' ? `<div style="margin:8px 0">
+        <label class="btn sm block" style="cursor:pointer">↑ Enviar foto
+          <input type="file" id="uploadFoto" accept="image/*" style="display:none">
+        </label>
+        ${n.src ? `<img src="${esc(n.src)}" style="width:100%;max-height:140px;object-fit:cover;border-radius:8px;margin-top:8px">` : ''}
+      </div>` : ''}
       ${rows}
       <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">
         <button class="btn sm" id="dupEl">Duplicar</button>
@@ -393,6 +521,29 @@ function renderProperties() {
     else n.styles[input.dataset.prop] = { [bp]: input.value };
     renderCanvas();
   });
+  const uploadInput = $('#uploadFoto', el);
+  if (uploadInput) uploadInput.onchange = async () => {
+    const file = uploadInput.files?.[0]; if (!file) return;
+    if (file.size > 10 * 1024 * 1024) return toast('Imagem muito grande (máx 10MB).');
+    toast('Enviando imagem...');
+    (async () => {
+      try {
+        const buf = await file.arrayBuffer();
+        let bin = '';
+        const bytes = new Uint8Array(buf);
+        for (let i = 0; i < bytes.length; i += 8192) {
+          bin += String.fromCharCode(...bytes.subarray(i, i + 8192));
+        }
+        const base64 = btoa(bin);
+        const r = await api('/assets/upload', 'POST', {
+          base64, mimeType: file.type, fileName: file.name,
+          projectId: state.current.id,
+        });
+        snapshot(); n.src = r.url; renderCanvas(); renderProperties();
+        toast('Foto enviada!');
+      } catch (e) { toast('Erro: ' + e.message); }
+    })();
+  };
   $('#propText', el).oninput = () => { snapshot(); n.text = $('#propText', el).value; renderCanvas(); };
   $('#propSrc', el).oninput = () => { snapshot(); if (n.type === 'image' || n.type === 'video') n.src = $('#propSrc', el).value; else n.href = $('#propSrc', el).value; renderCanvas(); };
   $('#dupEl', el).onclick = () => {
