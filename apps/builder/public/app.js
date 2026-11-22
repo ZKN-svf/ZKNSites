@@ -353,9 +353,8 @@ function updateSelectionOverlay() {
   }
   draw();
 
-  // MOVER com o mouse — usa transform (não altera o layout, sem pulos)
-  overlay.onpointerdown = (e) => {
-    if (e.target.dataset.handle) return; // alça cuida do resize
+  // MOVER pela TAG do overlay — usa transform (não altera o layout, sem pulos)
+  tag.onpointerdown = (e) => {
     e.preventDefault(); e.stopPropagation();
     snapshot();
     const startX = e.clientX, startY = e.clientY;
