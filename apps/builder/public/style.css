@@ -135,6 +135,11 @@ a{color:var(--accent);text-decoration:none}
 #canvas [data-zn-id].drop-target{outline:3px dashed var(--green);background:rgba(52,211,153,.06)}
 .tag-overlay{position:absolute;top:-20px;left:0;background:var(--accent);color:#fff;font:600 10px var(--font);padding:2px 7px;border-radius:4px 4px 0 0;pointer-events:none;z-index:5}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--panel-2);border:1px solid var(--line-2);padding:11px 18px;border-radius:10px;font-size:12px;box-shadow:var(--shadow);z-index:200;animation:fadeIn .2s}
+/* Mini menu do botão direito no elemento selecionado */
+.ctx-menu{position:fixed;z-index:1200;background:var(--panel);border:1px solid var(--line-2);border-radius:10px;padding:5px;box-shadow:var(--shadow);min-width:170px}
+.ctx-menu button{display:flex;align-items:center;gap:8px;width:100%;padding:9px 11px;background:transparent;border:0;color:var(--text);font:12px var(--font);text-align:left;border-radius:7px;cursor:pointer}
+.ctx-menu button:hover{background:var(--panel-2)}
+.ctx-menu button[data-act="delete"]{color:#ff7a7a}
 @keyframes fadeIn{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
 .modal{position:fixed;inset:0;background:rgba(4,8,18,.72);backdrop-filter:blur(5px);display:grid;place-items:center;z-index:150;padding:20px}
 .modal-card{background:var(--panel);border:1px solid var(--line-2);border-radius:var(--radius-lg);width:min(100%,480px);padding:26px;box-shadow:var(--shadow)}

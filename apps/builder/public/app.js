@@ -365,6 +365,10 @@ function updateSelectionOverlay() {
     if (e.button !== 0) return;
     if (e.target.closest && e.target.closest('.sel-handle')) return; // alça cuida do resize
     e.preventDefault(); e.stopPropagation();
+    // Elementos em fluxo normal devem continuar no fluxo — virar absolute faz
+    // todo o conteúdo abaixo subir (era o bug do Hero).
+    const eraAbsoluto = String(getStyleVal(n, 'position')) === 'absolute' ||
+      getComputedStyle(target).position === 'absolute';
     const startX = e.clientX, startY = e.clientY;
     const dx0 = dx, dy0 = dy;
     let moved = false;
@@ -386,21 +390,24 @@ function updateSelectionOverlay() {
       // Posição visual FINAL (com o transform ainda aplicado).
       const rFinal = target.getBoundingClientRect();
       target.style.transform = '';
-      // Converte para coordenadas do offsetParent — evita o "salto" quando o
-      // elemento sai do fluxo e passa a ser absolute dentro de outro pai.
-      const parent = target.offsetParent || canvas;
-      const pr = parent.getBoundingClientRect();
       const s = state.canvasScale || 1;
-      const leftFinal = Math.round((rFinal.left - pr.left - parent.clientLeft) / s);
-      const topFinal = Math.round((rFinal.top - pr.top - parent.clientTop) / s);
       snapshot();
-      setStyleVal(n, 'position', 'absolute');
-      // margins padrão (ex: h1 tem ~37px) somam ao top quando vira absolute
+      if (eraAbsoluto) {
+        // Já era absolute: converte para as coordenadas do offsetParent.
+        const parent = target.offsetParent || canvas;
+        const pr = parent.getBoundingClientRect();
+        const leftFinal = Math.round((rFinal.left - pr.left - parent.clientLeft) / s);
+        const topFinal = Math.round((rFinal.top - pr.top - parent.clientTop) / s);
+        setStyleVal(n, 'left', leftFinal + 'px');
+        setStyleVal(n, 'top', topFinal + 'px');
+      } else {
+        // Estava no fluxo: relative preserva o espaço e nada "pula" abaixo.
+        setStyleVal(n, 'position', 'relative');
+        setStyleVal(n, 'left', Math.round(dx / s) + 'px');
+        setStyleVal(n, 'top', Math.round(dy / s) + 'px');
+      }
       setStyleVal(n, 'margin', '0');
-      // sem largura explícita o elemento encolhe ao sair do fluxo
       setStyleVal(n, 'width', Math.round(rFinal.width / s) + 'px');
-      setStyleVal(n, 'left', leftFinal + 'px');
-      setStyleVal(n, 'top', topFinal + 'px');
       dx = 0; dy = 0;
       applyLiveStyle(target, n);
       requestAnimationFrame(() => ajustarAltura());
@@ -573,6 +580,35 @@ function renderCanvas() {
       if (!el) return;
       if (state.selectedId !== el.dataset.znId) selectNode(el.dataset.znId);
       if (moverSelecionado) moverSelecionado(e);
+    });
+
+    // Duplo clique em algo com texto edita direto na página
+    canvas.addEventListener('dblclick', (e) => {
+      const el = e.target.closest && e.target.closest('[data-zn-id]');
+      if (!el) return;
+      const found = findNode(state.doc.root, el.dataset.znId);
+      if (!found || (found.node.text === undefined && found.node.html === undefined)) return;
+      e.preventDefault(); e.stopPropagation();
+      selectNode(el.dataset.znId);
+      const original = String(found.node.text ?? '');
+      el.contentEditable = 'true';
+      el.style.userSelect = 'text';
+      el.focus();
+      try {
+        const range = document.createRange(); range.selectNodeContents(el);
+        const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+      } catch (_) {}
+      const salvar = () => {
+        el.contentEditable = 'false'; el.style.userSelect = '';
+        const novo = el.innerText.replace(/\n$/, '');
+        if (novo !== original) { snapshot(); found.node.text = novo; scheduleSave(); }
+        renderCanvas(); renderProperties();
+      };
+      el.addEventListener('blur', salvar, { once: true });
+      el.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); el.blur(); }
+        if (ev.key === 'Escape') { ev.preventDefault(); el.textContent = original; el.blur(); }
+      });
     });
 
     // Drag & drop por delegação
@@ -816,14 +852,62 @@ function renderProperties() {
     renderCanvas(); selectNode(copy.id); renderTree();
   };
   $('#lockEl', el).onclick = () => { snapshot(); n.locked = !n.locked; renderProperties(); };
-  $('#delEl', el).onclick = () => {
-    if (n.id === 'root') return toast('A raiz não pode ser excluída.');
-    snapshot();
-    const arr = found.parent ? found.parent.children : state.doc.root.children;
-    arr.splice(arr.indexOf(n), 1);
-    renderCanvas(); selectNode(null); renderTree();
-  };
+  $('#delEl', el).onclick = excluirSelecionado;
 }
+function excluirSelecionado() {
+  const found = state.selectedId ? findNode(state.doc.root, state.selectedId) : null;
+  if (!found) return;
+  const n = found.node;
+  if (n === state.doc.root || n.id === 'root') return toast('A raiz não pode ser excluída.');
+  snapshot();
+  const arr = found.parent ? found.parent.children : state.doc.root.children;
+  const i = arr.indexOf(n);
+  if (i >= 0) arr.splice(i, 1);
+  renderCanvas(); selectNode(null); renderTree(); scheduleSave();
+}
+
+// ===== MENU CONTEXTUAL (botão direito) =====
+function closeContextMenu() { const m = $('#ctxMenu'); if (m) m.remove(); }
+function showContextMenu(x, y, nodeId) {
+  closeContextMenu();
+  const found = nodeId ? findNode(state.doc.root, nodeId) : null;
+  if (!found || found.node === state.doc.root || found.node.id === 'root') return;
+  const n = found.node;
+  const menu = document.createElement('div');
+  menu.id = 'ctxMenu'; menu.className = 'ctx-menu';
+  menu.innerHTML = `<button data-act="rename">✏️ Renomear</button>
+    <button data-act="color">🎨 Editar cor</button>
+    <button data-act="delete">🗑️ Excluir</button>`;
+  document.body.appendChild(menu);
+  menu.style.left = Math.min(x, innerWidth - 190) + 'px';
+  menu.style.top = Math.min(y, innerHeight - 130) + 'px';
+  $$('button', menu).forEach(b => b.onclick = () => {
+    const act = b.dataset.act;
+    closeContextMenu();
+    if (act === 'rename') {
+      const novo = prompt('Novo nome:', n.name || n.type);
+      if (novo && novo.trim()) { snapshot(); n.name = novo.trim(); renderTree(); renderProperties(); scheduleSave(); }
+    } else if (act === 'color') {
+      const inp = document.createElement('input');
+      inp.type = 'color';
+      inp.value = String(n.styles?.background?.[state.device] || n.styles?.background?.desktop || '#5b8cff');
+      inp.oninput = () => { snapshot(); setStyleVal(n, 'background', inp.value); renderCanvas(); scheduleSave(); };
+      inp.click();
+    } else if (act === 'delete') {
+      excluirSelecionado();
+    }
+  });
+}
+document.addEventListener('click', () => closeContextMenu());
+document.addEventListener('contextmenu', (e) => {
+  const cv = $('#canvas');
+  if (!cv || !cv.contains(e.target)) return;
+  e.preventDefault();
+  const el = e.target.closest && e.target.closest('[data-zn-id]');
+  if (!el) return;
+  selectNode(el.dataset.znId);
+  showContextMenu(e.clientX, e.clientY, el.dataset.znId);
+});
 async function loadPages() {
   const r = await api(`/projects/${state.current.id}`);
   state.current.pages = r.pages;
