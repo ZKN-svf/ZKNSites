@@ -1017,40 +1017,65 @@ function addAiMsg(tipo, texto) {
   box.appendChild(d); box.scrollTop = box.scrollHeight;
   return d;
 }
-function aplicarAcoesIA(reply) {
-  const txt = String(reply);
-  let bruto = '';
-  const blo = txt.lastIndexOf('```json');
-  if (blo >= 0 && txt.lastIndexOf('```') > blo) {
-    bruto = txt.slice(blo + 7, txt.lastIndexOf('```'));
-  } else {
-    const i = txt.lastIndexOf('{'), j = txt.lastIndexOf('}');
-    if (i >= 0 && j > i) bruto = txt.slice(i, j + 1);
+function alvoIA() {
+  if (state.selectedId) {
+    const f = findNode(state.doc.root, state.selectedId);
+    if (f && f.node !== state.doc.root) return f.node;
   }
-  if (!bruto.includes('"action"')) return;
-  let a; try { a = JSON.parse(bruto); } catch { return; }
-  if (!a || !a.action) return;
-  if (a.action === 'add') {
+  let achado = null;
+  const walk = (n) => {
+    if (achado) return;
+    (n.children || []).forEach(c => { if (!achado) { achado = c; walk(c); } });
+  };
+  walk(state.doc.root || { children: [] });
+  return achado;
+}
+function aplicarAcaoIA(a) {
+  if (!a || !a.action) return false;
+  const acao = a.action;
+
+  if (acao === 'add') {
     snapshot();
     const novo = newComponent(String(a.component || 'text'));
+    if (a.text) novo.text = String(a.text).slice(0, 300);
+    if (a.src) novo.src = String(a.src).slice(0, 500);
+    if (a.color) setStyleVal(novo, 'color', a.color);
     novo.styles.position = { [state.device]: 'relative' };
     state.doc.root.children = state.doc.root.children || [];
     state.doc.root.children.push(novo);
     renderCanvas(); selectNode(novo.id); renderTree(); scheduleSave();
-    toast('Componente adicionado pela IA');
-  } else if (a.action === 'color' && /^#[0-9a-f]{6}$/i.test(a.color)) {
-    const found = state.selectedId ? findNode(state.doc.root, state.selectedId) : null;
-    if (found && found.node !== state.doc.root) {
-      snapshot(); setStyleVal(found.node, 'background', a.color); renderCanvas(); scheduleSave();
-      toast('Cor aplicada pela IA');
-    } else toast('Selecione um elemento para aplicar a cor');
-  } else if (a.action === 'text') {
-    const found = state.selectedId ? findNode(state.doc.root, state.selectedId) : null;
-    if (found && found.node.text !== undefined) {
-      snapshot(); found.node.text = String(a.text).slice(0, 200); renderCanvas(); renderProperties(); scheduleSave();
-      toast('Texto aplicado pela IA');
-    } else toast('Selecione um elemento de texto');
+    return true;
   }
+  if (acao === 'pageBg') {
+    if (!/^#[0-9a-f]{6}$/i.test(a.color)) return false;
+    snapshot(); setStyleVal(state.doc.root, 'background', a.color);
+    renderCanvas(); scheduleSave(); return true;
+  }
+
+  const alvo = alvoIA();
+  if (!alvo) return aplicarAcaoIA({ action: 'add', component: 'text', text: a.text || '' });
+
+  if (acao === 'text' && alvo.text !== undefined) {
+    snapshot(); alvo.text = String(a.text || '').slice(0, 300);
+    renderCanvas(); renderProperties(); scheduleSave(); return true;
+  }
+  if (acao === 'color' && /^#[0-9a-f]{6}$/i.test(a.color)) {
+    snapshot(); setStyleVal(alvo, 'background', a.color);
+    renderCanvas(); scheduleSave(); return true;
+  }
+  if (acao === 'fontSize' && /^\d{1,3}px$/i.test(a.size)) {
+    snapshot(); setStyleVal(alvo, 'fontSize', a.size);
+    renderCanvas(); renderProperties(); scheduleSave(); return true;
+  }
+  if (acao === 'rename') {
+    snapshot(); alvo.name = String(a.name || '').slice(0, 60);
+    renderTree(); renderProperties(); scheduleSave(); return true;
+  }
+  if (acao === 'delete') {
+    if (alvo === state.doc.root) return false;
+    state.selectedId = alvo.id; excluirSelecionado(); return true;
+  }
+  return false;
 }
 function bindAI() {
   const fab = $('#aiFab'), panel = $('#aiPanel'), input = $('#aiInput');
@@ -1066,8 +1091,8 @@ function bindAI() {
     const wait = addAiMsg('bot', 'Pensando...');
     try {
       const r = await api('/ai/assist', 'POST', { message: texto, context: contextoIA() });
-      if (wait) wait.textContent = r.reply || 'Sem resposta.';
-      aplicarAcoesIA(r.reply || '');
+      const fez = aplicarAcaoIA(r.action);
+      if (wait) wait.textContent = (r.reply || 'Feito!') + (fez ? ' ✅' : '');
     } catch (e) {
       if (wait) wait.textContent = 'Erro: ' + e.message;
     }

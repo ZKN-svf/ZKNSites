@@ -87,17 +87,26 @@ export default {
         const elementos = Array.isArray(context.elements) ? context.elements.slice(0, 14) : [];
 
         const system = [
-          'Você é o assistente de construção de sites do ZKNSites, um editor visual.',
-          'Responda SEMPRE em português do Brasil, de forma curta e prática (no máximo 4 frases).',
-          'Ajude com ideias de texto, cores, layout e estrutura para o site do usuário.',
-          'Quando o pedido resultar em uma mudança concreta no editor, inclua no final da resposta um bloco de código json válido com a ação correspondente.',
-          'Ações possíveis:',
-          '{"action":"add","component":"heading|text|button|link|image|section|divider|spacer"}',
-          '{"action":"color","color":"#RRGGBB"}',
-          '{"action":"text","text":"novo texto"}',
-          'Use apenas uma ação por resposta. Não invente IDs.',
-          `Contexto: projeto "${String(context.projectName || 'sem nome').slice(0, 80)}". Elementos atuais: ${JSON.stringify(elementos)}.`,
-          `Dispositivo em edição: ${String(context.device || 'desktop')}.`,
+          'Você é o EXECUTOR de ações do editor visual ZKNSites.',
+          'Você NÃO dá conselhos, NÃO explica o que poderia ser feito e NÃO faz perguntas. Você SEMPRE executa o pedido do usuário no site.',
+          'Responda com UM ÚNICO objeto JSON válido. Nada antes, nada depois. Sem markdown, sem blocos de código, sem texto extra.',
+          'O objeto deve ter: "reply" (confirmação curta em português, máx 10 palavras) e "action" com uma das ações abaixo.',
+          'AÇÕES:',
+          '{"reply":"...","action":"add","component":"heading|text|button|link|image|section|divider|spacer","text":"texto do elemento","src":"URL da imagem se image"}',
+          '{"reply":"...","action":"text","text":"novo texto"}',
+          '{"reply":"...","action":"color","color":"#RRGGBB"}',
+          '{"reply":"...","action":"pageBg","color":"#RRGGBB"}',
+          '{"reply":"...","action":"fontSize","size":"48px"}',
+          '{"reply":"...","action":"rename","name":"novo nome"}',
+          '{"reply":"...","action":"delete"}',
+          'REGRAS:',
+          '- Se o usuário pedir para criar/colocar/adicionar algo, use "add" e preencha o texto exato pedido.',
+          '- Se pedir para mudar um texto, use "text" com o texto exato pedido.',
+          '- Se pedir uma cor sem dizer onde, use "color" para o elemento selecionado (ou "pageBg" se falar do fundo/página).',
+          '- Converta nomes de cores para hexadecimal (azul=#2563eb, vermelho=#dc2626, verde=#16a34a, amarelo=#eab308, preto=#000000, branco=#ffffff).',
+          '- Se o pedido for ambíguo, escolha a ação mais útil e execute. Nunca responda só com explicação.',
+          `Contexto: projeto "${String(context.projectName || 'sem nome').slice(0, 80)}". Elementos: ${JSON.stringify(elementos)}.`,
+          `Dispositivo: ${String(context.device || 'desktop')}.`,
         ].join('\n');
 
         try {
@@ -106,11 +115,32 @@ export default {
               { role: 'system', content: system },
               { role: 'user', content: message },
             ],
-            max_tokens: 500,
-            temperature: 0.6,
+            max_tokens: 300,
+            temperature: 0.2,
           });
-          const reply = String((resp as any)?.response || '').trim();
-          return json({ ok: true, reply: reply || 'Não consegui gerar uma sugestão. Tente novamente.' });
+          const rr: any = resp;
+          let bruto = String(
+            rr?.choices?.[0]?.message?.content ??
+            rr?.choices?.[0]?.text ??
+            (typeof rr?.response === 'string' ? rr.response : '') ??
+            ''
+          ).trim();
+          bruto = bruto.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+          const ini = bruto.indexOf('{'), fim = bruto.lastIndexOf('}');
+          if (ini >= 0 && fim > ini) bruto = bruto.slice(ini, fim + 1);
+          let acao: any = null;
+          try { acao = JSON.parse(bruto); } catch { acao = null; }
+          const permitidas = ['add', 'text', 'color', 'pageBg', 'fontSize', 'rename', 'delete'];
+          if (!acao || !permitidas.includes(String(acao.action))) {
+            // fallback: se o modelo não obedeceu, extrai um texto simples da mensagem
+            const texto = message.replace(/^(coloque|adicione|adicionar|crie|escreva|mude o texto para|troque o texto para)\s*/i, '').slice(0, 120);
+            acao = { reply: 'Feito!', action: 'add', component: 'text', text: texto };
+          }
+          return json({
+            ok: true,
+            action: acao,
+            reply: String(acao.reply || 'Feito!').slice(0, 120),
+          });
         } catch (e: any) {
           console.error('[AI]', e);
           return err('O assistente está temporariamente indisponível.', 503);
