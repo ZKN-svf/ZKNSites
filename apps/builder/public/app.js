@@ -400,6 +400,7 @@ function updateSelectionOverlay() {
       setStyleVal(n, 'top', topFinal + 'px');
       dx = 0; dy = 0;
       applyLiveStyle(target, n);
+      ajustarAltura();
       updateSelectionOverlay();
       renderProperties();
       scheduleSave();
@@ -436,7 +437,7 @@ function updateSelectionOverlay() {
         w0 = nw; h0 = nh;
         draw();
       };
-      const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); scheduleSave(); renderProperties(); };
+      const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); ajustarAltura(); scheduleSave(); renderProperties(); };
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
     };
@@ -481,6 +482,22 @@ function selectNode(id) {
   updateSelectionOverlay();
 }
 
+// A Página cresce conforme o conteúdo — nada fica cortado
+function ajustarAltura() {
+  const canvas = $('#canvas');
+  const scaleEl = canvas ? $('#canvasScale', canvas) : null;
+  if (!canvas || !scaleEl) return;
+  let maxBottom = 900;
+  scaleEl.querySelectorAll('[data-zn-id]').forEach(el => {
+    if (el === scaleEl.firstElementChild) return;
+    const b = el.offsetTop + el.offsetHeight;
+    if (b > maxBottom) maxBottom = b;
+  });
+  const altura = Math.ceil(maxBottom + 40);
+  scaleEl.style.height = altura + 'px';
+  canvas.style.height = Math.ceil(altura * (state.canvasScale || 1)) + 'px';
+}
+
 // Recalcula o autoscaling quando a janela muda de tamanho
 function ajustarEscala() {
   const canvas = $('#canvas');
@@ -489,6 +506,7 @@ function ajustarEscala() {
   const s = Math.max(0.1, canvas.clientWidth / 1100);
   scaleEl.style.transform = `scale(${s})`;
   state.canvasScale = s;
+  ajustarAltura();
   updateSelectionOverlay();
 }
 window.addEventListener('resize', ajustarEscala);
@@ -576,6 +594,7 @@ function renderCanvas() {
     });
   }
 
+  ajustarAltura();
   if (state.selectedId) {
     const el = canvas.querySelector(`[data-zn-id="${state.selectedId}"]`);
     if (el) el.classList.add('selected');
