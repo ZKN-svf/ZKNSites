@@ -92,11 +92,16 @@ export default {
           'Responda com UM ÚNICO objeto JSON válido. Nada antes, nada depois. Sem markdown, sem blocos de código, sem texto extra.',
           'O objeto deve ter: "reply" (confirmação curta em português, máx 10 palavras) e "action" com uma das ações abaixo.',
           'AÇÕES:',
-          '{"reply":"...","action":"build","theme":{"background":"#0b0b0f","color":"#ffffff"},"sections":[ ... ]}',
-          'Use "build" SEMPRE que o usuário pedir para criar/fazer/montar um site, landing page, portfólio, loja ou página completa. Construa o site INTEIRO de uma vez com EXATAMENTE 5 seções: header, hero, serviços (grid com 3 cards), chamada final e footer. Máximo de 3 filhos por seção e 3 cards no grid. Escreva textos reais e coerentes com o pedido, não placeholders. Seja enxuto, sem estilos desnecessários.',
-          'Cada item de "sections" é: {"type":"header|section|footer|grid|card|heading|text|button|link|image|icon|divider|spacer|menu","tag":"h1","text":"...","styles":{"fontSize":"48px","padding":"80px 6%"},"children":[ ... ]}.',
-          'Estilos são strings CSS normais (padding, background, color, fontSize, fontWeight, textAlign, display, gridTemplateColumns, gap, borderRadius, maxWidth, margin). Aninhe filhos em "children" para montar cards e grids.',
-          'Exemplo de seção: {"type":"section","styles":{"padding":"100px 6%","textAlign":"center"},"children":[{"type":"heading","tag":"h1","text":"Título","styles":{"fontSize":"64px","fontWeight":"800"}},{"type":"text","text":"Descrição","styles":{"fontSize":"19px","maxWidth":"620px","margin":"0 auto 24px"}},{"type":"button","text":"Começar","styles":{"background":"#eab308","color":"#000","padding":"14px 30px","borderRadius":"10px","display":"inline-block","fontWeight":"700"}}]}',
+          '{"reply":"...","action":"build","title":"Título da aba","description":"meta description","font":"https://fonts.googleapis.com/css2?family=...","theme":{"background":"#0b0b0f","color":"#ffffff","accent":"#7c3aed"},"sections":[ ... ]}',
+          'Use "build" SEMPRE que o usuário pedir para criar/fazer/montar um site, landing page, portfólio, loja ou página completa. Construa o site INTEIRO de uma vez, com 7 a 9 seções: header com nav, hero impactante, prova social/marquee, serviços ou produtos em grid, sobre/números, depoimentos, FAQ ou processo, CTA final e footer. Escreva textos reais, específicos e profissionais — nunca "Lorem ipsum" nem placeholders.',
+          'DIREÇÃO DE DESIGN (siga sempre): visual premium e contemporâneo. Tipografia grande e expressiva (h1 entre 56px e 104px, line-height .95 a 1.1, letter-spacing negativo), espaçamento generoso (padding de seção 90px a 140px), contraste forte, paleta harmoniosa com 1 cor de destaque, gradientes sutis, vidro fosco, bordas finas, sombras profundas e elementos decorativos (orbos desfocados, grades, linhas, números gigantes). Nada de visual genérico de template.',
+          'Fontes: envie em "font" uma URL do Google Fonts com 2 famílias (ex.: Inter + Space Grotesk, Manrope + Sora, DM Sans + Syne). Escolha conforme o nicho.',
+          'NÃO escreva CSS. Use somente as classes prontas listadas abaixo — o sistema gera o CSS automaticamente. Isso mantém sua resposta curta e válida.',
+          'CLASSES DE ANIMAÇÃO PRONTAS (use nos elementos, campo "classes"): anim-fade-up, anim-fade-down, anim-slide-left, anim-slide-right, anim-zoom, anim-float, anim-bob, anim-pulse, anim-glow, anim-tilt, anim-spin, anim-gradient, reveal (anima ao rolar), hover-lift, hover-glow, hover-zoom, glass, gradient-text, text-glow, shimmer, mesh, orb, ring, marquee, marquee-track, btn-pro, card-pro, stagger (os filhos entram em cascata), eyebrow.',
+          'Controle o atraso com styles "--d":"180ms" (funciona com as classes anim-* e reveal). Para marquee, crie um item com classes ["marquee"] contendo outro com ["marquee-track"] e dentro dele os itens repetidos.',
+          'Cada item de "sections" é: {"type":"header|section|footer|grid|card|heading|text|button|link|image|icon|divider|spacer|menu","tag":"h1","text":"...","classes":["anim-fade-up","glass"],"styles":{"fontSize":"72px","padding":"110px 6%"},"children":[ ... ]}.',
+          'Estilos aceitos como strings CSS: padding, margin, background, backgroundImage, backgroundSize, color, fontSize, fontWeight, lineHeight, letterSpacing, textAlign, display, flexDirection, justifyContent, alignItems, gap, gridTemplateColumns, maxWidth, width, height, minHeight, borderRadius, border, boxShadow, backdropFilter, filter, textShadow, transform, transition, animation, opacity, overflow, clipPath, position, top, left, objectFit, placeItems, "--d". Aninhe filhos em "children".',
+          'Exemplo de hero: {"type":"section","classes":["mesh"],"styles":{"padding":"150px 6% 120px","textAlign":"center","position":"relative","overflow":"hidden"},"children":[{"type":"text","classes":["eyebrow","anim-fade-up"],"text":"ESTÚDIO CRIATIVO","styles":{"--d":"0ms","color":"#a78bfa"}},{"type":"heading","tag":"h1","classes":["gradient-text","anim-fade-up"],"text":"Ideias que viram marcas","styles":{"--d":"120ms","fontSize":"88px","fontWeight":"800","lineHeight":"1.02","letterSpacing":"-4px","margin":"20px 0"}},{"type":"text","classes":["anim-fade-up"],"text":"Descrição real e persuasiva aqui.","styles":{"--d":"240ms","fontSize":"20px","maxWidth":"620px","margin":"0 auto 34px","color":"#a5a5b5"}},{"type":"button","classes":["btn-pro","anim-fade-up","hover-glow"],"text":"Começar agora","styles":{"--d":"360ms","background":"#7c3aed","color":"#fff"}}]}',
           '{"reply":"...","action":"add","component":"heading|text|button|link|image|section|divider|spacer","text":"texto do elemento","src":"URL da imagem se image"}',
           '{"reply":"...","action":"text","text":"novo texto"}',
           '{"reply":"...","action":"color","color":"#RRGGBB"}',
@@ -127,7 +132,7 @@ export default {
                 { role: 'system', content: system + (tentativa ? '\nATENÇÃO: responda APENAS o JSON com a ação "build" e suas seções.' : '') },
                 { role: 'user', content: message },
               ],
-              max_tokens: querSite ? 6000 : 300,
+              max_tokens: querSite ? 5000 : 300,
               temperature: tentativa ? 0 : 0.2,
             });
             const rr: any = resp;
@@ -142,9 +147,19 @@ export default {
             if (ini >= 0 && fim > ini) bruto = bruto.slice(ini, fim + 1);
             try { acao = JSON.parse(bruto); } catch { acao = null; }
             if (!acao) {
-              const sufixos = ['}', ']}', '}}', '}]}', '}}]'];
+              const sufixos = ['}', ']}', '}}', '}]}', '}}]', '}}]}', '}}}}', '}}}]}', '}}}}]'];
               for (const suf of sufixos) {
                 try { acao = JSON.parse(bruto + suf); break; } catch { /* próximo */ }
+              }
+              // Se ainda falhar, trunca no último objeto fechado válido e fecha estrutura
+              if (!acao) {
+                const corte = bruto.lastIndexOf('}');
+                if (corte > 0) {
+                  const base = bruto.slice(0, corte + 1);
+                  for (const suf of ['}', ']}', '}}]}', '}}}}]']) {
+                    try { acao = JSON.parse(base + suf); break; } catch { /* próximo */ }
+                  }
+                }
               }
             }
             if (acao && !permitidas.includes(String(acao.action))) acao = null;
@@ -155,6 +170,24 @@ export default {
             const texto = message.replace(/^(coloque|adicione|adicionar|crie|escreva|mude o texto para|troque o texto para)\s*/i, '').slice(0, 120);
             acao = { reply: 'Feito!', action: 'add', component: 'text', text: texto };
           }
+          if (acao.action === 'build') {
+            const acc = /^#[0-9a-f]{6}$/i.test(String(acao.theme?.accent || '')) ? acao.theme.accent : '#7c3aed';
+            acao.css = [
+              `:root{--zn-accent:${acc}}`,
+              `::selection{background:${acc};color:#fff}`,
+              `body{position:relative;overflow-x:hidden}`,
+              `body::before{content:"";position:fixed;width:52vw;height:52vw;max-width:720px;max-height:720px;left:-18vw;top:-14vw;border-radius:50%;background:radial-gradient(circle,${acc}66 0%,transparent 68%);filter:blur(30px);opacity:.5;pointer-events:none;z-index:0;animation:znFloat 14s ease-in-out infinite}`,
+              `body::after{content:"";position:fixed;width:46vw;height:46vw;max-width:640px;max-height:640px;right:-16vw;bottom:-18vw;border-radius:50%;background:radial-gradient(circle,#38bdf855 0%,transparent 70%);filter:blur(40px);opacity:.45;pointer-events:none;z-index:0;animation:znFloat 18s ease-in-out infinite reverse}`,
+              `body>*{position:relative;z-index:1}`,
+              `.reveal:nth-child(2){--d:90ms}.reveal:nth-child(3){--d:180ms}.reveal:nth-child(4){--d:270ms}.reveal:nth-child(5){--d:360ms}`,
+              `.gradient-text{background-image:linear-gradient(100deg,#fff 8%,${acc} 48%,#67e8f9 88%)}`,
+              `.btn-pro{box-shadow:0 14px 40px ${acc}55}`,
+              `.card-pro::after{background:linear-gradient(120deg,transparent 38%,${acc}33 50%,transparent 62%)}`,
+              `::-webkit-scrollbar{width:10px}::-webkit-scrollbar-track{background:#0b0b0f}::-webkit-scrollbar-thumb{background:${acc};border-radius:10px}`,
+            ].join('\n');
+            acao.theme = acao.theme || {};
+            acao.theme.accent = acc;
+          }
           return json({
             ok: true,
             action: acao,
@@ -162,6 +195,9 @@ export default {
           });
         } catch (e: any) {
           console.error('[AI]', e);
+          if (/4006|daily free allocation|neurons/i.test(String(e?.message || e))) {
+            return err('Limite diário de IA da Cloudflare atingido. Volte amanhã ou faça upgrade do plano Workers.', 429);
+          }
           return err('O assistente está temporariamente indisponível.', 503);
         }
       }

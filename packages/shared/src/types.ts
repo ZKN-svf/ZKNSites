@@ -70,8 +70,33 @@ export interface ElementStyles {
   // animação
   animation?: ResponsiveValue;
   animationDelay?: ResponsiveValue;
+  animationDuration?: ResponsiveValue;
+  animationIterationCount?: ResponsiveValue;
+  animationTimingFunction?: ResponsiveValue;
+  // aparência avançada
+  backdropFilter?: ResponsiveValue;
+  filter?: ResponsiveValue;
+  textShadow?: ResponsiveValue;
+  outline?: ResponsiveValue;
+  cursor?: ResponsiveValue;
+  aspectRatio?: ResponsiveValue;
+  objectFit?: ResponsiveValue;
+  objectPosition?: ResponsiveValue;
+  placeItems?: ResponsiveValue;
+  alignContent?: ResponsiveValue;
+  justifyItems?: ResponsiveValue;
+  gridAutoRows?: ResponsiveValue;
+  clipPath?: ResponsiveValue;
+  perspective?: ResponsiveValue;
+  transformStyle?: ResponsiveValue;
+  mixBlendMode?: ResponsiveValue;
+  backgroundSize?: ResponsiveValue;
+  backgroundPosition?: ResponsiveValue;
+  backgroundRepeat?: ResponsiveValue;
+  borderImage?: ResponsiveValue;
   // visibilidade (mobile, etc.)
   hidden?: ResponsiveValue<'true' | 'false'>;
+  [key: string]: ResponsiveValue | undefined;
 }
 
 export interface ElementNode {
@@ -100,6 +125,8 @@ export interface PageDocument {
     description?: string;
     favicon?: string;
     ogImage?: string;
+    customCss?: string;
+    fontUrl?: string;
   };
 }
 

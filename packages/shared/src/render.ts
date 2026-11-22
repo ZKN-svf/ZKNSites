@@ -36,6 +36,17 @@ const STYLE_KEYS: Record<string, string> = {
   fontSize: 'font-size', fontWeight: 'font-weight', lineHeight: 'line-height',
   letterSpacing: 'letter-spacing', textAlign: 'text-align', textTransform: 'text-transform',
   textDecoration: 'text-decoration', animation: 'animation', animationDelay: 'animation-delay',
+  animationDuration: 'animation-duration', animationIterationCount: 'animation-iteration-count',
+  animationTimingFunction: 'animation-timing-function',
+  backdropFilter: 'backdrop-filter', filter: 'filter', textShadow: 'text-shadow',
+  outline: 'outline', cursor: 'cursor', aspectRatio: 'aspect-ratio',
+  objectFit: 'object-fit', objectPosition: 'object-position', placeItems: 'place-items',
+  alignContent: 'align-content', justifyItems: 'justify-items',
+  gridAutoRows: 'grid-auto-rows', clipPath: 'clip-path', perspective: 'perspective',
+  transformStyle: 'transform-style', mixBlendMode: 'mix-blend-mode',
+  backgroundSize: 'background-size', backgroundPosition: 'background-position',
+  backgroundRepeat: 'background-repeat', borderImage: 'border-image',
+  inset: 'inset', willChange: 'will-change', contain: 'contain',
 };
 
 function declsFor(styles: ElementStyles, bp: keyof typeof BREAKPOINTS): string {
@@ -50,6 +61,11 @@ function declsFor(styles: ElementStyles, bp: keyof typeof BREAKPOINTS): string {
       if (Number.isFinite(num)) val = (num / 1100 * 100).toFixed(3) + '%';
     }
     out.push(`${cssProp}:${cssSafe(val)}`);
+  }
+  for (const [k, v] of Object.entries(styles)) {
+    if (!k.startsWith('--')) continue;
+    const custom = resolve(v as ResponsiveValue, bp);
+    if (custom) out.push(`${k}:${cssSafe(custom)}`);
   }
   return out.join(';');
 }
@@ -122,6 +138,80 @@ function cssForTree(node: ElementNode, bp: keyof typeof BREAKPOINTS): string {
   return rule + (node.children || []).map(c => cssForTree(c, bp)).join('');
 }
 
+// Biblioteca de design e animações disponível para todos os sites gerados.
+// O agente de IA usa essas classes para criar sites profissionais com movimento.
+const PRO_CSS = `
+/* ---- keyframes ---- */
+@keyframes znFadeUp{from{opacity:0;transform:translateY(38px)}to{opacity:1;transform:none}}
+@keyframes znFadeDown{from{opacity:0;transform:translateY(-38px)}to{opacity:1;transform:none}}
+@keyframes znSlideL{from{opacity:0;transform:translateX(-60px)}to{opacity:1;transform:none}}
+@keyframes znSlideR{from{opacity:0;transform:translateX(60px)}to{opacity:1;transform:none}}
+@keyframes znZoom{from{opacity:0;transform:scale(.82)}to{opacity:1;transform:none}}
+@keyframes znFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-16px)}}
+@keyframes znBob{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-9px) rotate(1deg)}}
+@keyframes znPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.06);opacity:.82}}
+@keyframes znGlow{0%,100%{box-shadow:0 0 22px rgba(99,102,241,.35),0 0 60px rgba(168,85,247,.18)}50%{box-shadow:0 0 42px rgba(99,102,241,.7),0 0 100px rgba(168,85,247,.42)}}
+@keyframes znShimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+@keyframes znMarquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+@keyframes znSpin{to{transform:rotate(360deg)}}
+@keyframes znGradient{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+@keyframes znRing{0%{transform:scale(.7);opacity:.9}100%{transform:scale(2.2);opacity:0}}
+@keyframes znTilt{0%,100%{transform:perspective(900px) rotateX(0) rotateY(0)}50%{transform:perspective(900px) rotateX(5deg) rotateY(-5deg)}}
+/* ---- entrada ---- */
+.anim-fade-up{animation:znFadeUp .9s cubic-bezier(.2,.7,.2,1) both;animation-delay:var(--d,0s)}
+.anim-fade-down{animation:znFadeDown .9s cubic-bezier(.2,.7,.2,1) both;animation-delay:var(--d,0s)}
+.anim-slide-left{animation:znSlideL .9s cubic-bezier(.2,.7,.2,1) both;animation-delay:var(--d,0s)}
+.anim-slide-right{animation:znSlideR .9s cubic-bezier(.2,.7,.2,1) both;animation-delay:var(--d,0s)}
+.anim-zoom{animation:znZoom .9s cubic-bezier(.2,.7,.2,1) both;animation-delay:var(--d,0s)}
+.anim-float{animation:znFloat 5s ease-in-out infinite;animation-delay:var(--d,0s)}
+.anim-bob{animation:znBob 4s ease-in-out infinite}
+.anim-pulse{animation:znPulse 2.4s ease-in-out infinite}
+.anim-glow{animation:znGlow 2.8s ease-in-out infinite}
+.anim-tilt{animation:znTilt 8s ease-in-out infinite;transform-style:preserve-3d}
+.anim-spin{animation:znSpin 14s linear infinite}
+.anim-gradient{background-size:200% 200%;animation:znGradient 7s ease infinite}
+/* ---- scroll reveal ---- */
+.reveal{opacity:0;transform:translateY(34px);transition:opacity .8s cubic-bezier(.2,.7,.2,1),transform .8s cubic-bezier(.2,.7,.2,1);transition-delay:var(--d,0s)}
+.reveal.is-visible{opacity:1;transform:none}
+/* ---- hover ---- */
+.hover-lift{transition:transform .35s cubic-bezier(.2,.7,.2,1),box-shadow .35s ease,border-color .35s ease}
+.hover-lift:hover{transform:translateY(-10px);box-shadow:0 26px 60px rgba(0,0,0,.28)}
+.hover-glow{transition:box-shadow .35s ease,transform .35s ease}
+.hover-glow:hover{box-shadow:0 0 38px rgba(99,102,241,.6);transform:translateY(-4px)}
+.hover-zoom{overflow:hidden}
+.hover-zoom img,.hover-zoom>img{transition:transform .7s cubic-bezier(.2,.7,.2,1)}
+.hover-zoom:hover img{transform:scale(1.12)}
+/* ---- superfícies ---- */
+.glass{background:rgba(255,255,255,.07);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,.16)}
+.gradient-text{background:linear-gradient(100deg,#fff 10%,#a78bfa 45%,#38bdf8 80%);background-size:200% auto;-webkit-background-clip:text;background-clip:text;color:transparent;animation:znGradient 6s ease infinite}
+.text-glow{text-shadow:0 0 24px rgba(129,140,248,.65)}
+.shimmer{background:linear-gradient(100deg,rgba(255,255,255,.04) 20%,rgba(255,255,255,.22) 45%,rgba(255,255,255,.04) 70%);background-size:200% 100%;animation:znShimmer 2.4s linear infinite}
+.mesh{background-image:radial-gradient(at 16% 18%,rgba(99,102,241,.5) 0,transparent 42%),radial-gradient(at 84% 12%,rgba(217,70,239,.42) 0,transparent 40%),radial-gradient(at 62% 88%,rgba(14,165,233,.4) 0,transparent 45%)}
+.orb{position:absolute;border-radius:50%;filter:blur(70px);opacity:.55;pointer-events:none;animation:znFloat 9s ease-in-out infinite}
+.ring{position:absolute;inset:0;border:2px solid currentColor;border-radius:inherit;animation:znRing 2.6s ease-out infinite;pointer-events:none}
+/* ---- marquee ---- */
+.marquee{overflow:hidden;white-space:nowrap;display:flex}
+.marquee-track{display:flex;gap:48px;min-width:200%;animation:znMarquee 26s linear infinite}
+.marquee:hover .marquee-track{animation-play-state:paused}
+/* ---- botões e cards ---- */
+.btn-pro{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:16px 34px;border-radius:999px;font-weight:700;border:0;cursor:pointer;text-decoration:none;transition:transform .3s ease,box-shadow .3s ease,filter .3s ease}
+.btn-pro:hover{transform:translateY(-4px) scale(1.03);filter:brightness(1.1)}
+.card-pro{position:relative;overflow:hidden;border-radius:22px;border:1px solid rgba(255,255,255,.12);transition:transform .4s cubic-bezier(.2,.7,.2,1),border-color .4s ease,box-shadow .4s ease}
+.card-pro:hover{transform:translateY(-12px);border-color:rgba(167,139,250,.6);box-shadow:0 30px 70px rgba(0,0,0,.35)}
+.card-pro::after{content:"";position:absolute;inset:0;background:linear-gradient(120deg,transparent 40%,rgba(255,255,255,.14) 50%,transparent 60%);transform:translateX(-120%);transition:transform .7s ease}
+.card-pro:hover::after{transform:translateX(120%)}
+/* ---- utilitários ---- */
+.stagger>*{animation:znFadeUp .8s cubic-bezier(.2,.7,.2,1) both}
+.stagger>*:nth-child(1){animation-delay:.05s}.stagger>*:nth-child(2){animation-delay:.14s}
+.stagger>*:nth-child(3){animation-delay:.23s}.stagger>*:nth-child(4){animation-delay:.32s}
+.stagger>*:nth-child(5){animation-delay:.41s}.stagger>*:nth-child(6){animation-delay:.5s}
+.eyebrow{letter-spacing:.22em;text-transform:uppercase;font-size:12px;font-weight:800;opacity:.75}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+@media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none}.anim-fade-up,.anim-fade-down,.anim-slide-left,.anim-slide-right,.anim-zoom,.anim-float,.anim-bob,.anim-pulse,.anim-glow,.anim-tilt,.anim-spin,.anim-gradient,.card-pro::after{animation:none!important}}
+`;
+
+const REVEAL_JS = `<script>(function(){var els=document.querySelectorAll('.reveal');if(!('IntersectionObserver' in window)||!els.length){els.forEach(function(e){e.classList.add('is-visible')});return}var o=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('is-visible');o.unobserve(e.target)}})},{threshold:.12,rootMargin:'0px 0px -40px 0px'});els.forEach(function(e){o.observe(e)})})</script>`;
+
 export function renderPage(doc: PageDocument, pageLinks: Record<string, string> = {}, previewToken = ''): RenderedSite {
   LINKS = pageLinks;
   PREVIEW_TOKEN = previewToken;
@@ -140,6 +230,8 @@ a{color:inherit}
 .zn-spacer{height:24px}
 `;
   const css = baseCss
+    + PRO_CSS
+    + (doc.meta.customCss ? '\n/* CSS do agente */\n' + doc.meta.customCss.replace(/<\/style/gi, '<\\/style') + '\n' : '')
     + cssForTree(doc.root, 'desktop')
     + '@media(max-width:900px){' + cssForTree(doc.root, 'tablet') + '}'
     + '@media(max-width:600px){' + cssForTree(doc.root, 'mobile') + '}';
@@ -153,10 +245,12 @@ a{color:inherit}
 <meta name="description" content="${esc(doc.meta.description || '')}">
 ${doc.meta.ogImage ? `<meta property="og:image" content="${esc(doc.meta.ogImage)}">` : ''}
 ${doc.meta.favicon ? `<link rel="icon" href="${esc(doc.meta.favicon)}">` : ''}
+${doc.meta.fontUrl ? `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="${esc(doc.meta.fontUrl)}" rel="stylesheet">` : ''}
 <style>${css}</style>
 </head>
 <body>
 ${renderNode(doc.root, 'desktop', '')}
+${REVEAL_JS}
 </body>
 </html>`;
 
