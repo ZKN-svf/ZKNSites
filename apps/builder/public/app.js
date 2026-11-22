@@ -426,7 +426,8 @@ function editorView() {
       <button class="btn sm ghost" id="undoBtn" title="Desfazer">↶</button>
       <button class="btn sm ghost" id="redoBtn" title="Refazer">↷</button>
       <button class="btn sm" id="previewBtn">Pré-visualizar</button>
-      <button class="btn sm primary" id="publishBtn">Publicar</button>
+      <button class="btn sm" id="publishBtn">Publicar</button>
+      <button class="btn sm primary" id="finishBtn">Finalizar site</button>
       <button class="btn sm ghost" id="backBtn">Sair</button>
     </div>
     <div class="ed-body">
@@ -451,6 +452,7 @@ function bindEditor() {
   $('#undoBtn').onclick = undo; $('#redoBtn').onclick = redo;
   $('#backBtn').onclick = () => { state.current = null; state.doc = null; loadDashboard(); };
   $('#previewBtn').onclick = () => window.open('https://zknsites-publisher.gabrielrobin63.workers.dev/?preview=' + state.current.slug, '_blank');
+  $('#finishBtn').onclick = () => showCheckout();
   $('#publishBtn').onclick = async () => {
     const b = $('#publishBtn'); b.disabled = true; b.textContent = 'Publicando...';
     try {
@@ -460,6 +462,72 @@ function bindEditor() {
     b.disabled = false; b.textContent = 'Publicar';
   };
   renderTree(); renderComponents();
+}
+
+// ======================= CHECKOUT (Nexas) =======================
+let checkoutTimer = null;
+async function showCheckout() {
+  const plans = await api('/payments/plans');
+  const div = document.createElement('div');
+  div.className = 'modal';
+  div.innerHTML = `<div class="modal-card" style="width:min(100%,520px)">
+    <h2>Finalizar seu site</h2>
+    <p class="sub">Escolha o plano, pague com PIX e seu site será publicado com domínio próprio.</p>
+    <div id="planList" style="display:grid;gap:10px;margin-bottom:16px">
+      ${plans.plans.map((p, i) => `<label class="plan-opt" style="display:flex;gap:12px;align-items:center;padding:14px;border:1px solid var(--line);border-radius:10px;cursor:pointer;${i === 0 ? 'border-color:var(--accent);background:rgba(91,140,255,.08)' : ''}">
+        <input type="radio" name="plan" value="${p.price}" ${i === 0 ? 'checked' : ''}>
+        <span style="flex:1"><strong>${p.name}</strong><br><small style="color:var(--muted)">${esc(p.description)}</small></span>
+        <strong style="color:var(--accent-2)">R$ ${p.price.toFixed(2).replace('.', ',')}</strong>
+      </label>`).join('')}
+    </div>
+    <div id="checkoutPix" class="hidden" style="text-align:center;padding:10px 0">
+      <p style="font-size:13px;color:var(--muted)">Escaneie o QR Code ou copie o código PIX:</p>
+      <div id="pixQr" style="display:inline-block;padding:12px;background:#fff;border-radius:12px;margin:12px 0"></div>
+      <input id="pixCode" readonly style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg-2);font-size:11px;color:var(--cyan)">
+      <button class="btn sm" id="copyPix" style="margin-top:8px">Copiar código</button>
+      <p id="pixStatus" style="font-size:12px;color:var(--gold);margin-top:10px">Aguardando pagamento...</p>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn primary" id="payBtn">Gerar PIX</button>
+      <button class="btn ghost" id="closeCheckout">Fechar</button>
+    </div>
+  </div>`;
+  document.body.appendChild(div);
+  $('#closeCheckout', div).onclick = () => { clearInterval(checkoutTimer); div.remove(); };
+  $$('input[name=plan]', div).forEach(r => r.onchange = () => {
+    $$('.plan-opt', div).forEach(l => l.style.borderColor = 'var(--line)');
+    r.closest('.plan-opt').style.borderColor = 'var(--accent)';
+  });
+  $('#payBtn', div).onclick = async () => {
+    const amount = Number($('input[name=plan]:checked', div).value);
+    const btn = $('#payBtn', div); btn.disabled = true; btn.textContent = 'Gerando...';
+    try {
+      const r = await api('/payments/checkout', 'POST', { projectId: state.current.id, amount });
+      $('#checkoutPix', div).classList.remove('hidden');
+      const qr = $('#pixQr', div); qr.innerHTML = '';
+      if (r.pixImage) qr.innerHTML = `<img src="${r.pixImage}" style="width:200px">`;
+      else if (window.QRCode) new QRCode(qr, { text: r.pixCode, width: 200, height: 200 });
+      else qr.innerHTML = `<div style="width:200px;height:200px;display:grid;place-items:center;font-size:11px;color:#000">QR indisponível — use o código abaixo</div>`;
+      $('#pixCode', div).value = r.pixCode;
+      btn.textContent = 'PIX gerado';
+      $('#copyPix', div).onclick = () => {
+        const c = $('#pixCode', div); c.select(); document.execCommand('copy'); toast('Código copiado!');
+      };
+      // polling
+      clearInterval(checkoutTimer);
+      checkoutTimer = setInterval(async () => {
+        try {
+          const s = await api('/payments/status?external_id=' + encodeURIComponent(r.identifier));
+          if (s.pago) {
+            clearInterval(checkoutTimer);
+            $('#pixStatus', div).textContent = 'Pagamento confirmado! Seu site foi liberado.';
+            $('#pixStatus', div).style.color = 'var(--green)';
+            setTimeout(() => { div.remove(); loadDashboard(); }, 2200);
+          }
+        } catch {}
+      }, 5000);
+    } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Gerar PIX'; }
+  };
 }
 
 // ======================= RENDER =======================

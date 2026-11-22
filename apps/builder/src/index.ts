@@ -5,6 +5,7 @@ import type { Env } from './env';
 import { json, err, uid, now, rateLimit, sanitizeHtml, getIp } from './lib';
 import { handleAuth, currentUser } from './auth';
 import { handleProjects } from './projects';
+import { criarCobranca, consultarPagamento, confirmarPagamento, gatewayConfigurado } from './payments';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -73,6 +74,48 @@ export default {
         if (!u) return err('Não autorizado.', 401);
         const rows = await env.DB.prepare('SELECT * FROM assets WHERE user_id=? ORDER BY created_at DESC LIMIT 200').bind(u.id).all();
         return json({ ok: true, assets: rows.results || [] });
+      }
+
+      // Webhook da Nexas (público) — confirma pagamento e libera o site
+      if (path === '/webhook/nexas' && method === 'POST') {
+        const externalId = String(body.external_id || body.transactionId || body.externalId || '');
+        if (!externalId) return err('Sem external_id', 400);
+        const ok = await confirmarPagamento(env, externalId);
+        return json({ ok: true, liberado: ok });
+      }
+
+      // Checkout / status de pagamento
+      if (path === '/payments/checkout' && method === 'POST') {
+        const u = await currentUser(env, request);
+        if (!u) return err('Não autorizado.', 401);
+        if (!gatewayConfigurado(env)) return err('Gateway de pagamento não configurado.', 503);
+        const projectId = String(body.projectId || '');
+        const p = await env.DB.prepare('SELECT * FROM projects WHERE id=? AND user_id=?').bind(projectId, u.id).first<any>();
+        if (!p) return err('Projeto não encontrado.', 404);
+        const preco = Number(body.amount || 29.9);
+        if (!(preco >= 5 && preco <= 500)) return err('Valor inválido.');
+        const r = await criarCobranca(env, { amount: preco, projectId, userEmail: u.email, userName: u.name });
+        if (!r.ok) return err(r.mensagem || 'Erro ao gerar cobrança.', 502);
+        return json({ ok: true, pixCode: r.pixCode, pixImage: r.pixImage, identifier: r.identifier, amount: preco });
+      }
+      if (path === '/payments/status' && method === 'GET') {
+        const u = await currentUser(env, request);
+        if (!u) return err('Não autorizado.', 401);
+        const id = new URL(request.url).searchParams.get('external_id') || '';
+        if (!id) return err('Sem external_id', 400);
+        const row = await env.DB.prepare('SELECT * FROM payments WHERE external_id=? AND user_email=?').bind(id, u.email).first<any>();
+        if (!row) return err('Pagamento não encontrado.', 404);
+        let pago = row.status === 'PAID';
+        if (!pago) {
+          pago = await confirmarPagamento(env, id);
+        }
+        return json({ ok: true, pago, status: pago ? 'PAID' : 'PENDING' });
+      }
+      if (path === '/payments/plans' && method === 'GET') {
+        return json({ ok: true, plans: [
+          { id: 'pro', name: 'PRO', price: 29.9, description: 'Site publicado, domínio próprio, sem marca d\'água' },
+          { id: 'business', name: 'BUSINESS', price: 79.9, description: 'Projetos ilimitados, colaboração e suporte prioritário' },
+        ] });
       }
 
       // Todas as rotas de projeto exigem login
