@@ -38,9 +38,13 @@ export default {
       if (parts.length >= 3 && parts[1] === base) slug = parts[0];
     }
 
-    // Preview sem DNS: ?preview=slug  ou  /s/slug
+    // Preview do editor: ?preview=TOKEN_OPACO  (nunca aceita slug direto)
     const preview = url.searchParams.get('preview') || url.pathname.match(/^\/s\/([\w-]+)/)?.[1];
-    if (!slug && preview) slug = preview;
+    if (preview) {
+      // Tokens de preview são opacos e começam com 'prev_'. Outros valores são rejeitados.
+      if (!preview.startsWith('prev_')) return fallback('Pré-visualização inválida', 'Este link de pré-visualização não é válido.');
+      slug = preview;
+    }
 
     if (!slug) return fallback('Site nÃƒÂ£o encontrado', 'Este endereÃƒÂ§o nÃƒÂ£o corresponde a nenhum site publicado.');
 

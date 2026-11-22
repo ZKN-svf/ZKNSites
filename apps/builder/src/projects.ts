@@ -216,10 +216,13 @@ export async function handleProjects(path: string, method: string, req: Request,
       ...doc,
       meta: { ...doc.meta, title: doc.meta?.title || 'Pré-visualização' },
     });
-    const token = mPrev[1];
-    await env.PUBLISHED.put(`preview:${token}`, JSON.stringify({ html: rendered.html, ts: now() }), { expirationTtl: 3600 });
+    // Token opaco e imprevisível, válido por 30 min, ligado ao projeto/usuário.
+    const token = uid('prev_') + '_' + mPrev[1];
+    await env.PUBLISHED.put(`preview:${token}`, JSON.stringify({
+      html: rendered.html, ts: now(), projectId: mPrev[1], userId: user.id,
+    }), { expirationTtl: 1800 });
     const base = env.PUBLISH_PREVIEW_URL || 'https://zknsites-publisher.gabrielrobin63.workers.dev/?preview=';
-    return json({ ok: true, url: `${base}${token}` });
+    return json({ ok: true, url: `${base}${token}`, expiresIn: 1800 });
   }
 
   // PUBLICAR / DESPUBLICAR

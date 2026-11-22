@@ -46,12 +46,14 @@ export async function criarCobranca(env: Env, { amount, projectId, userEmail, us
   const externalId = `zknsite_${uid('')}`.slice(0, 40);
   const postbackUrl = `${env.BUILDER_URL.replace(/\/+$/, '')}/api/webhook/nexas`;
 
+  // A Nexas exige payer.name — nunca enviar vazio.
+  const nome = String(userName || '').trim() || userEmail.split('@')[0] || 'Cliente ZKNSites';
   const dados: any = {
     amount: Number(amount).toFixed(2),
     external_id: externalId,
     description: 'ZKNSites — Publicação de site',
     postbackUrl,
-    payer: { name: String(userName).slice(0, 120), email: userEmail },
+    payer: { name: nome.slice(0, 120), email: userEmail },
   };
   const doc = String(userDocument || '').replace(/\D/g, '');
   if (doc.length === 11 || doc.length === 14) dados.payer.document = doc;
