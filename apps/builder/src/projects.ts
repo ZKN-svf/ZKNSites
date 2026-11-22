@@ -8,6 +8,12 @@ import { renderPage } from '../../../packages/shared/src/render';
 
 const PLAN_LIMITS: Record<string, number> = { free: 2, pro: 25, business: 1000 };
 
+function statePageId(body: any, pages: any[]): string {
+  if (body.pageId && pages.some(p => p.id === body.pageId)) return body.pageId;
+  const home = pages.find(p => p.is_home);
+  return home ? home.id : (pages[0]?.id || '');
+}
+
 function blankDoc(): PageDocument {
   const root: ElementNode = {
     id: 'root', type: 'root', name: 'Página', styles: {}, children: [
@@ -170,6 +176,20 @@ export async function handleProjects(path: string, method: string, req: Request,
     return json({ ok: true, page: { id: pageId, name, slug } });
   }
 
+  // EXCLUIR PÁGINA
+  const mDelPage = path.match(/^\/projects\/([\w-]+)\/pages\/([\w-]+)$/);
+  if (mDelPage && method === 'DELETE') {
+    const p = await env.DB.prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?').bind(mDelPage[1], user.id).first();
+    if (!p) return err('Projeto não encontrado.', 404);
+    const pg = await env.DB.prepare('SELECT * FROM pages WHERE id = ? AND project_id = ?').bind(mDelPage[2], mDelPage[1]).first<any>();
+    if (!pg) return err('Página não encontrada.', 404);
+    if (pg.is_home) return err('A página inicial não pode ser excluída.', 400);
+    const rest = await env.DB.prepare('SELECT id FROM pages WHERE project_id = ? AND id != ? ORDER BY order_index LIMIT 1').bind(mDelPage[1], pg.id).first<any>();
+    if (rest) await env.DB.prepare('UPDATE pages SET is_home = 1 WHERE id = ?').bind(rest.id).run();
+    await env.DB.prepare('DELETE FROM pages WHERE id = ?').bind(pg.id).run();
+    return json({ ok: true, newHomeId: rest?.id || null });
+  }
+
   // SALVAR DOCUMENTO (autosave)
   const mDoc = path.match(/^\/projects\/([\w-]+)\/pages\/([\w-]+)\/document$/);
   if (mDoc && method === 'PUT') {
@@ -241,15 +261,35 @@ export async function handleProjects(path: string, method: string, req: Request,
     if (!p) return err('Projeto não encontrado.', 404);
     const doc = body.document as any;
     if (!doc || !doc.root) return err('Documento inválido.');
-    const rendered = renderPage({
-      ...doc,
-      meta: { ...doc.meta, title: doc.meta?.title || 'Pré-visualização' },
-    });
     // Token opaco e imprevisível, válido por 30 min, ligado ao projeto/usuário.
     const token = uid('prev_') + '_' + mPrev[1];
+
+    const allPages = await env.DB.prepare('SELECT id,name,slug,is_home FROM pages WHERE project_id = ? ORDER BY order_index').bind(mPrev[1]).all<any>();
+    const links: Record<string, string> = {};
+    for (const pg of allPages.results || []) links[pg.id] = pg.is_home ? 'home' : pg.slug;
+
+    const pageMap: Record<string, any> = {};
+    let homeHtml = '';
+    for (const pg of allPages.results || []) {
+      let pd = doc;
+      if (pg.id !== statePageId(body, allPages.results || [])) {
+        const dd = await env.DB.prepare('SELECT document FROM page_documents WHERE page_id = ?').bind(pg.id).first<any>();
+        if (dd) pd = JSON.parse(dd.document); else continue;
+      }
+      const rendered = renderPage({
+        ...pd,
+        meta: { ...pd.meta, title: pd.meta?.title || pg.name },
+      }, links, token);
+      pageMap[pg.is_home ? 'home' : pg.slug] = { html: rendered.html, name: pg.name, isHome: !!pg.is_home };
+      if (pg.is_home) homeHtml = rendered.html;
+    }
+    if (!homeHtml) {
+      homeHtml = renderPage(doc, links, token).html;
+      pageMap.home = { html: homeHtml, name: 'Home', isHome: true };
+    }
+
     await env.PUBLISHED.put(`preview:${token}`, JSON.stringify({
-      html: rendered.html, ts: now(), projectId: mPrev[1], userId: user.id,
-      pages: { home: { html: rendered.html, name: 'Home', isHome: true } },
+      html: homeHtml, ts: now(), projectId: mPrev[1], userId: user.id, pages: pageMap,
     }), { expirationTtl: 1800 });
     const base = env.PUBLISH_PREVIEW_URL || 'https://zknsites-publisher.gabrielrobin63.workers.dev/?preview=';
     return json({ ok: true, url: `${base}${token}`, expiresIn: 1800 });

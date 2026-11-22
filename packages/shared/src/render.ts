@@ -41,8 +41,15 @@ const STYLE_KEYS: Record<string, string> = {
 function declsFor(styles: ElementStyles, bp: keyof typeof BREAKPOINTS): string {
   const out: string[] = [];
   for (const [key, cssProp] of Object.entries(STYLE_KEYS)) {
-    const val = resolve((styles as any)[key], bp);
-    if (val !== undefined && val !== '') out.push(`${cssProp}:${cssSafe(val)}`);
+    let val = resolve((styles as any)[key], bp);
+    if (val === undefined || val === '') continue;
+    // left/top em px são relativos ao canvas do editor (largura variável).
+    // Convertemos para % para que o preview e o site publicado保持一致.
+    if ((key === 'left' || key === 'right') && /px$/.test(String(val))) {
+      const num = parseFloat(String(val));
+      if (Number.isFinite(num)) val = (num / 1100 * 100).toFixed(3) + '%';
+    }
+    out.push(`${cssProp}:${cssSafe(val)}`);
   }
   return out.join(';');
 }
@@ -57,6 +64,11 @@ const TAG_BY_TYPE: Record<string, string> = {
 };
 
 let LINKS: Record<string, string> = {};
+let PREVIEW_TOKEN = '';
+function linkHref(slug: string): string {
+  if (PREVIEW_TOKEN) return `?preview=${encodeURIComponent(PREVIEW_TOKEN)}&page=${encodeURIComponent(slug)}`;
+  return slug || '/';
+}
 function renderNode(node: ElementNode, bp: keyof typeof BREAKPOINTS, classPrefix: string): string {
   const hidden = resolve(node.styles.hidden as ResponsiveValue, bp);
   if (hidden === 'true' || node.hidden) return '';
@@ -67,7 +79,7 @@ function renderNode(node: ElementNode, bp: keyof typeof BREAKPOINTS, classPrefix
   if (tag === 'button' && node.href) {
     let href = node.href;
     const mp = href.match(/^#page:(.+)$/);
-    if (mp) href = LINKS[mp[1]] || mp[1];
+    if (mp) href = linkHref(LINKS[mp[1]] ?? mp[1]);
     attrs.push(`href="${esc(href)}"`);
   }
   const decl = declsFor(node.styles, bp);
@@ -85,7 +97,7 @@ function renderNode(node: ElementNode, bp: keyof typeof BREAKPOINTS, classPrefix
   } else if (node.type === 'link') {
     let href = node.href || '#';
     const mPage = href.match(/^#page:(.+)$/);
-    if (mPage) href = LINKS[mPage[1]] || mPage[1];
+    if (mPage) href = linkHref(LINKS[mPage[1]] ?? mPage[1]);
     attrs.push(`href="${esc(href)}"`);
     inner = esc(node.text || node.name);
   } else if (node.type === 'input' || node.type === 'checkbox') {
@@ -110,8 +122,9 @@ function cssForTree(node: ElementNode, bp: keyof typeof BREAKPOINTS): string {
   return rule + (node.children || []).map(c => cssForTree(c, bp)).join('');
 }
 
-export function renderPage(doc: PageDocument, pageLinks: Record<string, string> = {}): RenderedSite {
+export function renderPage(doc: PageDocument, pageLinks: Record<string, string> = {}, previewToken = ''): RenderedSite {
   LINKS = pageLinks;
+  PREVIEW_TOKEN = previewToken;
   const baseCss = `
 *,*::before,*::after{box-sizing:border-box}
 html{margin:0;padding:0;scroll-behavior:smooth}

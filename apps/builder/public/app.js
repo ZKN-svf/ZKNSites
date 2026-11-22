@@ -615,8 +615,23 @@ async function loadPages() {
 function renderPageTabs() {
   const el = $('#pageTabs'); if (!el || !state.current?.pages) return;
   el.innerHTML = state.current.pages.map(p =>
-    `<button class="page-tab ${p.id === state.pageId ? 'on' : ''}" data-page="${p.id}">${esc(p.name)}</button>`
+    `<button class="page-tab ${p.id === state.pageId ? 'on' : ''}" data-page="${p.id}">${esc(p.name)}${p.is_home ? '' : `<span class="page-del" data-delpage="${p.id}" title="Excluir página">×</span>`}</button>`
   ).join('');
+  $$('[data-delpage]', el).forEach(b => b.onclick = async (e) => {
+    e.stopPropagation();
+    if (!confirm('Excluir esta página?')) return;
+    try {
+      const r = await api(`/projects/${state.current.id}/pages/${b.dataset.delpage}`, 'DELETE');
+      await loadPages();
+      if (b.dataset.delpage === state.pageId) {
+        state.pageId = r.newHomeId || state.current.pages[0].id;
+      }
+      state.doc = JSON.parse(state.current.documents[state.pageId]);
+      state.selectedId = null;
+      renderPageTabs(); renderCanvas(); renderProperties();
+      toast('Página excluída.');
+    } catch (err) { toast(err.message); }
+  });
   $$('[data-page]', el).forEach(b => b.onclick = async () => {
     if (b.dataset.page === state.pageId) return;
     state.pageId = b.dataset.page;
@@ -682,7 +697,7 @@ function bindEditor() {
   $('#previewBtn').onclick = async () => {
     const btn = $('#previewBtn'); btn.disabled = true; btn.textContent = 'Abrindo...';
     try {
-      const r = await api(`/projects/${state.current.id}/preview`, 'POST', { document: state.doc });
+      const r = await api(`/projects/${state.current.id}/preview`, 'POST', { document: state.doc, pageId: state.pageId });
       window.open(r.url, '_blank');
     } catch (e) { toast(e.message); }
     btn.disabled = false; btn.textContent = 'Pré-visualizar';
