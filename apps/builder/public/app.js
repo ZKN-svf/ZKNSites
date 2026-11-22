@@ -1,0 +1,489 @@
+// ============================================================
+// ZKNSites — aplicação frontend (auth, dashboard, editor visual)
+// ============================================================
+const API = 'https://zknsites-api.gabrielrobin63.workers.dev/api';
+const TOKEN_KEY = 'zknsites_token';
+const USER_KEY = 'zknsites_user';
+
+const state = {
+  token: localStorage.getItem(TOKEN_KEY),
+  user: JSON.parse(localStorage.getItem(USER_KEY) || 'null'),
+  projects: [],
+  templates: [],
+  current: null,
+  doc: null,
+  pageId: null,
+  selectedId: null,
+  device: 'desktop',
+  undo: [],
+  redo: [],
+  saveTimer: null,
+  dirty: false,
+};
+
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const uid = (p = 'n_') => p + Math.random().toString(36).slice(2, 10);
+const fmt = (n) => new Date(n).toLocaleString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+async function api(path, method = 'GET', body) {
+  const r = await fetch(API + path, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...(state.token ? { Authorization: 'Bearer ' + state.token } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let j; try { j = await r.json(); } catch { j = {}; }
+  if (!r.ok) throw new Error(j.message || 'Erro ' + r.status);
+  return j;
+}
+function toast(msg) {
+  $$('.toast').forEach(t => t.remove());
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 2600);
+}
+function setSession(token, user) {
+  state.token = token; state.user = user;
+  localStorage.setItem(TOKEN_KEY, token); localStorage.setItem(USER_KEY, JSON.stringify(user));
+}
+function logout() {
+  localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY);
+  state.token = null; state.user = null; render();
+}
+
+// ======================= AUTH =======================
+function authView(mode = 'login') {
+  const isLogin = mode === 'login';
+  return `<div class="auth-wrap"><div class="auth-bg"></div><div class="auth-card">
+    <div class="brand"><div class="brand-mark">Z</div><span>ZKNSites</span></div>
+    <h1>${isLogin ? 'Bem-vindo de volta' : 'Crie sua conta'}</h1>
+    <p class="sub">${isLogin ? 'Entre para gerenciar seus sites.' : 'Comece a criar seu primeiro site grátis.'}</p>
+    <form id="authForm">
+      ${isLogin ? '' : '<label class="field"><span>Nome</span><input id="authName" required placeholder="Seu nome"></label>'}
+      <label class="field"><span>E-mail</span><input id="authEmail" type="email" required placeholder="voce@email.com"></label>
+      <label class="field"><span>Senha</span><input id="authPass" type="password" required placeholder="Mínimo 8 caracteres"></label>
+      <button class="btn primary block" type="submit">${isLogin ? 'Entrar' : 'Criar conta'}</button>
+    </form>
+    <p class="msg" id="authMsg"></p>
+    <div class="auth-links">
+      <span>${isLogin ? 'Não tem conta?' : 'Já tem conta?'} <a href="#" id="toggleAuth">${isLogin ? 'Cadastre-se' : 'Entrar'}</a></span>
+      <a href="#" id="toggleTheme">Alternar tema</a>
+    </div>
+  </div></div>`;
+}
+function bindAuth(mode) {
+  $('#toggleAuth').onclick = (e) => { e.preventDefault(); render({ authMode: mode === 'login' ? 'register' : 'login' }); };
+  $('#toggleTheme').onclick = (e) => { e.preventDefault(); document.body.classList.toggle('light'); };
+  $('#authForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const msg = $('#authMsg'); msg.textContent = 'Aguarde...'; msg.className = 'msg';
+    try {
+      const body = { email: $('#authEmail').value, password: $('#authPass').value };
+      if (mode === 'register') body.name = $('#authName').value;
+      const r = await api(mode === 'login' ? '/auth/login' : '/auth/register', 'POST', body);
+      setSession(r.token, r.user); render();
+    } catch (err) { msg.textContent = err.message; msg.className = 'msg error'; }
+  };
+}
+
+// ======================= DASHBOARD =======================
+const COMPONENTS = [
+  ['heading','Título','H'], ['text','Texto','T'], ['image','Imagem','▣'], ['video','Vídeo','▶'],
+  ['button','Botão','⬭'], ['link','Link','↗'], ['container','Container','▤'], ['section','Seção','▥'],
+  ['grid','Grid','▦'], ['columns','Colunas','▥'], ['card','Card','▢'], ['gallery','Galeria','▧'],
+  ['testimonial','Depoimento','❝'], ['form','Formulário','▤'], ['input','Campo','⌨'], ['menu','Menu','☰'],
+  ['header','Cabeçalho','▔'], ['footer','Rodapé','▁'], ['icon','Ícone','✦'], ['divider','Divisor','—'],
+  ['spacer','Espaço','↕'], ['list','Lista','≡'], ['table','Tabela','▦'], ['select','Select','⌄'],
+];
+const TEMPLATE_CARDS = [
+  ['blank','Em branco','Comece do zero','▢'], ['portfolio','Portfólio','Mostre seu trabalho','◈'],
+  ['business','Empresa','Site institucional','▥'], ['restaurant','Restaurante','Cardápio e reservas','▦'],
+  ['landing','Landing page','Converta visitantes','↗'], ['blog','Blog','Artigos e conteúdo','▤'],
+  ['ecommerce','Loja virtual','Venda produtos','▣'], ['agency','Agência','Serviços criativos','✦'],
+];
+
+async function loadDashboard() {
+  try {
+    const [p, t] = await Promise.all([api('/projects'), api('/templates')]);
+    state.projects = p.projects || [];
+    state.templates = t.templates || [];
+  } catch (e) { toast(e.message); }
+  render();
+}
+function dashboardView() {
+  const projects = state.projects;
+  const published = projects.filter(p => p.status === 'published').length;
+  const limite = { free: 2, pro: 25, business: 1000 }[state.user?.plan] || 2;
+  return `<div class="shell">
+    <header class="topbar">
+      <div class="brand"><div class="brand-mark">Z</div><span>ZKNSites</span></div>
+      <span class="badge">${state.user?.plan || 'free'}</span>
+      <div class="spacer"></div>
+      <button class="btn sm ghost" id="themeBtn">Tema</button>
+      <div class="avatar" title="${esc(state.user?.email)}">${(state.user?.name || 'U')[0].toUpperCase()}</div>
+      <button class="btn sm ghost" id="logoutBtn">Sair</button>
+    </header>
+    <main class="container">
+      <div class="page-head">
+        <div><h1>Meus sites</h1><p>Crie, edite e publique — tudo em um só lugar.</p></div>
+        <button class="btn primary" id="newBtn">+ Novo site</button>
+      </div>
+      <div class="stat-grid">
+        <div class="stat"><small>Projetos</small><strong>${projects.length} <span style="font-size:12px;color:var(--muted)">/ ${limite}</span></strong></div>
+        <div class="stat"><small>Publicados</small><strong>${published}</strong></div>
+        <div class="stat"><small>Rascunhos</small><strong>${projects.length - published}</strong></div>
+        <div class="stat"><small>Plano</small><strong style="text-transform:capitalize">${state.user?.plan || 'free'}</strong></div>
+      </div>
+      <section class="section"><h2>Modelos <small>comece com um template</small></h2>
+        <div class="grid-projects">${TEMPLATE_CARDS.map(([id,n,d,i]) => `
+          <div class="card-project" data-template="${id}"><div class="thumb"><span class="thumb-icon">${i}</span></div>
+          <div class="card-body"><div class="card-title">${n}</div><div class="card-meta">${d}</div></div></div>`).join('')}
+        </div>
+      </section>
+      <section class="section"><h2>Projetos recentes <small>${projects.length} projeto(s)</small></h2>
+        ${projects.length ? `<div class="grid-projects">${projects.map(p => `
+          <div class="card-project" data-open="${p.id}">
+            <div class="thumb"><span class="thumb-icon">▣</span></div>
+            <div class="card-body">
+              <div class="card-title">${esc(p.name)}</div>
+              <div class="card-meta"><span class="badge ${p.status === 'published' ? 'pub' : 'draft'}">${p.status === 'published' ? 'Publicado' : 'Rascunho'}</span><span>${fmt(p.last_edited_at)}</span></div>
+              <div style="color:var(--muted);font-size:10px;margin-top:5px">/${esc(p.slug)}</div>
+            </div>
+            <div class="card-actions">
+              <button class="btn sm" data-open_btn="${p.id}">Abrir</button>
+              ${p.status === 'published' ? `<a class="btn sm" href="${esc(p.published_url || '#')}" target="_blank">Ver site</a>` : ''}
+              <button class="btn sm ghost" data-dup="${p.id}" title="Duplicar">⧉</button>
+              <button class="btn sm danger" data-del="${p.id}" title="Excluir">✕</button>
+            </div>
+          </div>`).join('')}</div>` : `<div class="empty"><h3>Nenhum projeto ainda</h3><p>Crie seu primeiro site acima.</p></div>`}
+      </section>
+    </main>
+  </div>`;
+}
+function bindDashboard() {
+  $('#logoutBtn').onclick = async () => { try { await api('/auth/logout', 'POST'); } catch {} logout(); };
+  $('#themeBtn').onclick = () => document.body.classList.toggle('light');
+  $('#newBtn').onclick = () => showNewModal();
+  $$('[data-template]').forEach(el => el.onclick = () => showNewModal(el.dataset.template));
+  $$('[data-open], [data-open_btn]').forEach(el => el.onclick = (e) => {
+    e.stopPropagation(); const id = el.dataset.open || el.dataset.open_btn; openEditor(id);
+  });
+  $$('[data-dup]').forEach(el => el.onclick = async (e) => {
+    e.stopPropagation(); try { await api(`/projects/${el.dataset.dup}/duplicate`, 'POST', {}); toast('Projeto duplicado!'); loadDashboard(); } catch (err) { toast(err.message); }
+  });
+  $$('[data-del]').forEach(el => el.onclick = async (e) => {
+    e.stopPropagation();
+    if (!confirm('Excluir este projeto? Esta ação não pode ser desfeita.')) return;
+    try { await api(`/projects/${el.dataset.del}`, 'DELETE'); toast('Projeto excluído.'); loadDashboard(); } catch (err) { toast(err.message); }
+  });
+}
+function showNewModal(template = 'blank') {
+  const div = document.createElement('div');
+  div.className = 'modal';
+  div.innerHTML = `<div class="modal-card">
+    <h2>Criar novo site</h2><p class="sub">Escolha um nome para seu projeto.</p>
+    <form id="newForm">
+      <label class="field"><span>Nome do site</span><input id="newName" required placeholder="Minha Empresa" autofocus></label>
+      <label class="field"><span>Modelo</span><select id="newTemplate">
+        ${TEMPLATE_CARDS.map(([id,n]) => `<option value="${id}" ${id === template ? 'selected' : ''}>${n}</option>`).join('')}
+      </select></label>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn primary" type="submit">Criar projeto</button>
+        <button class="btn ghost" type="button" id="cancelNew">Cancelar</button>
+      </div>
+    </form></div>`;
+  document.body.appendChild(div);
+  $('#cancelNew', div).onclick = () => div.remove();
+  $('#newForm', div).onsubmit = async (e) => {
+    e.preventDefault();
+    const t = $('#newTemplate', div).value;
+    try {
+      const r = await api('/projects', 'POST', { name: $('#newName', div).value, from_template: t === 'blank' ? undefined : t });
+      div.remove(); toast('Projeto criado!'); openEditor(r.project.id);
+    } catch (err) { toast(err.message); }
+  };
+  $('#newName', div).focus();
+}
+
+// ======================= EDITOR =======================
+async function openEditor(id) {
+  try {
+    const r = await api(`/projects/${id}`);
+    state.current = r.project;
+    state.pageId = r.pages[0].id;
+    state.doc = JSON.parse(r.documents[state.pageId]);
+    state.selectedId = null; state.undo = []; state.redo = [];
+    state.editor = true;
+    render({ editor: true });
+    bindEditor(); renderCanvas(); renderProperties();
+  } catch (e) { toast(e.message); }
+}
+function findNode(root, id, parent = null) {
+  if (root.id === id) return { node: root, parent };
+  for (const c of root.children || []) {
+    const f = findNode(c, id, root);
+    if (f) return f;
+  }
+  return null;
+}
+function snapshot() {
+  state.undo.push(JSON.stringify(state.doc));
+  if (state.undo.length > 60) state.undo.shift();
+  state.redo = [];
+  state.dirty = true;
+  scheduleSave();
+}
+function scheduleSave() {
+  clearTimeout(state.saveTimer);
+  $('#saveStatus') && ($('#saveStatus').textContent = 'Salvando...');
+  state.saveTimer = setTimeout(async () => {
+    try {
+      await api(`/projects/${state.current.id}/pages/${state.pageId}/document`, 'PUT', { document: state.doc });
+      state.dirty = false;
+      $('#saveStatus') && ($('#saveStatus').textContent = '✓ Salvo');
+    } catch (e) { toast('Erro ao salvar: ' + e.message); }
+  }, 900);
+}
+function undo() {
+  if (!state.undo.length) return;
+  state.redo.push(JSON.stringify(state.doc));
+  state.doc = JSON.parse(state.undo.pop());
+  renderCanvas(); renderProperties(); scheduleSave();
+}
+function redo() {
+  if (!state.redo.length) return;
+  state.undo.push(JSON.stringify(state.doc));
+  state.doc = JSON.parse(state.redo.pop());
+  renderCanvas(); renderProperties(); scheduleSave();
+}
+function nodeHTML(n) {
+  if (n.hidden) return '';
+  const tag = n.tag || ({ heading:'h2', text:'p', image:'img', button:'button', link:'a', container:'div', section:'section', header:'header', footer:'footer', card:'article', menu:'nav', divider:'hr', spacer:'div', grid:'div', columns:'div', column:'div', gallery:'div', testimonial:'blockquote', form:'form', input:'input', list:'ul', table:'table', icon:'span' }[n.type] || 'div');
+  const st = n.styles || {};
+  const pick = (bp) => {
+    const parts = [];
+    for (const [k, css] of Object.entries({
+      width:'width',height:'height',padding:'padding',margin:'margin',background:'background',color:'color',
+      fontSize:'font-size',fontWeight:'font-weight',textAlign:'text-align',display:'display',gap:'gap',
+      borderRadius:'border-radius',border:'border',boxShadow:'box-shadow',opacity:'opacity',textTransform:'text-transform',
+      gridTemplateColumns:'grid-template-columns',flexDirection:'flex-direction',justifyContent:'justify-content',
+      alignItems:'align-items',minHeight:'min-height',maxWidth:'max-width',lineHeight:'line-height',letterSpacing:'letter-spacing',
+    })) {
+      let v = st[k];
+      if (v && typeof v === 'object') v = v[bp] ?? v.desktop;
+      if (v !== undefined && v !== '') parts.push(`${css}:${v}`);
+    }
+    return parts.join(';');
+  };
+  const style = pick('desktop') + (state.device === 'tablet' ? ';' + pick('tablet') : '') + (state.device === 'mobile' ? ';' + pick('mobile') : '');
+  const attrs = `data-zn-id="${n.id}" class="el" style="${esc(style)}"`;
+  const inner = (n.children || []).map(nodeHTML).join('') || (n.html || esc(n.text || ''));
+  if (['img','input','hr'].includes(tag)) return `<${tag} ${attrs} ${n.src ? `src="${esc(n.src)}"` : ''} ${n.alt ? `alt="${esc(n.alt)}"` : ''}>`;
+  if (tag === 'a') return `<a ${attrs} href="${esc(n.href || '#')}">${inner}</a>`;
+  return `<${tag} ${attrs}>${inner}</${tag}>`;
+}
+function renderCanvas() {
+  const canvas = $('#canvas'); if (!canvas || !state.doc) return;
+  canvas.className = state.device;
+  canvas.innerHTML = nodeHTML(state.doc.root);
+  $$('[data-zn-id]', canvas).forEach(el => {
+    el.onclick = (e) => {
+      e.stopPropagation();
+      $$('[data-zn-id].selected', canvas).forEach(x => x.classList.remove('selected'));
+      el.classList.add('selected');
+      state.selectedId = el.dataset.znId;
+      renderProperties();
+    };
+    // drag & drop de componentes
+    el.ondragover = (e) => { e.preventDefault(); el.classList.add('drop-target'); };
+    el.ondragleave = () => el.classList.remove('drop-target');
+    el.ondrop = (e) => {
+      e.preventDefault(); e.stopPropagation(); el.classList.remove('drop-target');
+      const type = e.dataTransfer.getData('text/component');
+      if (!type) return;
+      snapshot();
+      const found = findNode(state.doc.root, el.dataset.znId);
+      if (found) {
+        found.node.children = found.node.children || [];
+        found.node.children.push(newComponent(type));
+        renderCanvas(); renderProperties();
+      }
+    };
+  });
+  canvas.onclick = () => {
+    $$('[data-zn-id].selected', canvas).forEach(x => x.classList.remove('selected'));
+    state.selectedId = null; renderProperties();
+  };
+}
+function newComponent(type) {
+  const defaults = {
+    heading: { text: 'Novo título', tag: 'h2' }, text: { text: 'Novo texto' },
+    button: { text: 'Clique aqui', tag: 'button' }, link: { text: 'Link', tag: 'a' },
+    image: { src: '', tag: 'img', alt: 'Imagem' }, video: { tag: 'video' },
+    divider: { tag: 'hr' }, spacer: { tag: 'div' },
+  };
+  return { id: uid(), type, name: COMPONENTS.find(c => c[0] === type)?.[1] || type,
+    styles: { padding: { desktop: '16px' }, ...(type === 'button' ? { background: { desktop: '#5b8cff' }, color: { desktop: '#fff' }, borderRadius: { desktop: '8px' } } : {}) },
+    ...(defaults[type] || {}), children: ['container','section','grid','columns','card','gallery','form','header','footer','list'].includes(type) ? [] : undefined };
+}
+function renderTree() {
+  const el = $('#tree'); if (!el) return;
+  const walk = (n, depth = 0) => {
+    const icon = COMPONENTS.find(c => c[0] === n.type)?.[2] || '▢';
+    return `<div class="tree-item ${state.selectedId === n.id ? 'sel' : ''}" data-tree="${n.id}" style="padding-left:${8 + depth * 12}px">
+      <span class="dot"></span><span>${icon}</span><span>${esc(n.name || n.type)}</span></div>
+      ${(n.children || []).map(c => walk(c, depth + 1)).join('')}`;
+  };
+  el.innerHTML = walk(state.doc.root);
+  $$('[data-tree]', el).forEach(x => x.onclick = (e) => {
+    e.stopPropagation(); state.selectedId = x.dataset.tree;
+    renderTree(); renderCanvas(); renderProperties();
+  });
+}
+function renderComponents() {
+  const el = $('#components'); if (!el) return;
+  el.innerHTML = `<div class="comp-grid">${COMPONENTS.map(([t, n, i]) => `
+    <div class="comp" draggable="true" data-comp="${t}"><span class="ico">${i}</span>${n}</div>`).join('')}</div>`;
+  $$('[data-comp]', el).forEach(c => c.ondragstart = (e) => e.dataTransfer.setData('text/component', c.dataset.comp));
+}
+const PROPS = [
+  ['width','Largura','text'],['height','Altura','text'],['padding','Padding','text'],['margin','Margem','text'],
+  ['background','Fundo','color'],['color','Cor','color'],['fontSize','Tam. fonte','text'],
+  ['fontWeight','Peso','select:300,400,500,600,700,800'],['textAlign','Alinhamento','select:left,center,right'],
+  ['display','Display','select:block,flex,grid,inline-block,none'],['gap','Gap','text'],
+  ['borderRadius','Arredondamento','text'],['opacity','Opacidade','text'],['textTransform','Maiúsculas','select:none,uppercase,lowercase'],
+];
+function renderProperties() {
+  const el = $('#properties'); if (!el) return;
+  const found = state.selectedId ? findNode(state.doc.root, state.selectedId) : null;
+  if (!found) {
+    el.innerHTML = `<div class="panel-sec"><h3>Propriedades</h3><div class="panel-content">
+      <p style="color:var(--muted);font-size:12px;line-height:1.6">Selecione um elemento na página ou na árvore para editar suas propriedades.</p></div></div>`;
+    return;
+  }
+  const n = found.node, bp = state.device;
+  const getVal = (k) => {
+    const v = n.styles?.[k];
+    return v && typeof v === 'object' ? (v[bp] ?? v.desktop ?? '') : (v ?? '');
+  };
+  const rows = PROPS.map(([k, label, type]) => {
+    const [kind, opts] = type.includes(':') ? type.split(':') : [type, ''];
+    const val = String(getVal(k) || '').replace(/"/g, '&quot;');
+    if (kind === 'select') return `<div class="prop"><label>${label}</label><select data-prop="${k}">
+      <option value="">—</option>${opts.split(',').map(o => `<option value="${o}" ${String(getVal(k)) === o ? 'selected' : ''}>${o}</option>`).join('')}</select></div>`;
+    return `<div class="prop"><label>${label}</label><input data-prop="${k}" type="${kind}" value="${val}"></div>`;
+  }).join('');
+  el.innerHTML = `<div class="panel-sec"><h3>Elemento: ${esc(n.name || n.type)}</h3><div class="panel-content">
+      <div class="prop"><label>Texto</label><input id="propText" value="${esc(n.text || '')}"></div>
+      <div class="prop"><label>Conteúdo</label><input id="propContent" value="${esc(n.html || '')}" placeholder="HTML (opcional)"></div>
+      <div class="prop"><label>Imagem/Link</label><input id="propSrc" value="${esc(n.src || n.href || '')}"></div>
+      ${rows}
+      <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">
+        <button class="btn sm" id="dupEl">Duplicar</button>
+        <button class="btn sm" id="lockEl">${n.locked ? 'Desbloquear' : 'Bloquear'}</button>
+        <button class="btn sm danger" id="delEl">Excluir</button>
+      </div>
+      <p style="color:var(--muted);font-size:10px;margin-top:10px">Editando: <strong style="color:var(--accent-2)">${bp}</strong></p>
+    </div></div>`;
+  $$('[data-prop]', el).forEach(input => input.onchange = () => {
+    snapshot();
+    n.styles = n.styles || {};
+    const cur = n.styles[input.dataset.prop];
+    if (cur && typeof cur === 'object') cur[bp] = input.value;
+    else n.styles[input.dataset.prop] = { [bp]: input.value };
+    renderCanvas();
+  });
+  $('#propText', el).oninput = () => { snapshot(); n.text = $('#propText', el).value; renderCanvas(); };
+  $('#propSrc', el).oninput = () => { snapshot(); if (n.type === 'image' || n.type === 'video') n.src = $('#propSrc', el).value; else n.href = $('#propSrc', el).value; renderCanvas(); };
+  $('#dupEl', el).onclick = () => {
+    snapshot();
+    const copy = JSON.parse(JSON.stringify(n)); copy.id = uid(); copy.name = n.name + ' (cópia)';
+    const arr = found.parent ? found.parent.children : state.doc.root.children;
+    arr.splice(arr.indexOf(n) + 1, 0, copy);
+    state.selectedId = copy.id; renderTree(); renderCanvas(); renderProperties();
+  };
+  $('#lockEl', el).onclick = () => { snapshot(); n.locked = !n.locked; renderProperties(); };
+  $('#delEl', el).onclick = () => {
+    if (n.id === 'root') return toast('A raiz não pode ser excluída.');
+    snapshot();
+    const arr = found.parent ? found.parent.children : state.doc.root.children;
+    arr.splice(arr.indexOf(n), 1);
+    state.selectedId = null; renderTree(); renderCanvas(); renderProperties();
+  };
+}
+function editorView() {
+  return `<div class="editor">
+    <div class="ed-top">
+      <div class="brand"><div class="brand-mark">Z</div><span>ZKNSites</span></div>
+      <input class="ed-name" id="edName" value="${esc(state.current.name)}">
+      <span class="badge" id="saveStatus">✓ Salvo</span>
+      <div class="spacer"></div>
+      <div class="seg" id="deviceSeg">
+        <button data-dev="desktop" class="${state.device === 'desktop' ? 'on' : ''}">Desktop</button>
+        <button data-dev="tablet" class="${state.device === 'tablet' ? 'on' : ''}">Tablet</button>
+        <button data-dev="mobile" class="${state.device === 'mobile' ? 'on' : ''}">Celular</button>
+      </div>
+      <button class="btn sm ghost" id="undoBtn" title="Desfazer">↶</button>
+      <button class="btn sm ghost" id="redoBtn" title="Refazer">↷</button>
+      <button class="btn sm" id="previewBtn">Pré-visualizar</button>
+      <button class="btn sm primary" id="publishBtn">Publicar</button>
+      <button class="btn sm ghost" id="backBtn">Sair</button>
+    </div>
+    <div class="ed-body">
+      <aside class="ed-left">
+        <div class="panel-sec"><h3>Camadas</h3><div class="panel-content" id="tree"></div></div>
+        <div class="panel-sec"><h3>Componentes <small style="color:var(--muted);font-size:9px">arraste</small></h3><div class="panel-content" id="components"></div></div>
+      </aside>
+      <div class="ed-center"><div class="canvas-wrap"><div id="canvas"></div></div></div>
+      <aside class="ed-right"><div id="properties"></div></aside>
+    </div>
+  </div>`;
+}
+function bindEditor() {
+  $('#edName').onchange = async (e) => {
+    try { await api(`/projects/${state.current.id}`, 'PUT', { name: e.target.value, seo_title: e.target.value }); toast('Nome salvo.'); } catch (err) { toast(err.message); }
+  };
+  $$('#deviceSeg button').forEach(b => b.onclick = () => {
+    state.device = b.dataset.dev;
+    $$('#deviceSeg button').forEach(x => x.classList.toggle('on', x === b));
+    renderCanvas(); renderProperties();
+  });
+  $('#undoBtn').onclick = undo; $('#redoBtn').onclick = redo;
+  $('#backBtn').onclick = () => { state.current = null; state.doc = null; loadDashboard(); };
+  $('#previewBtn').onclick = () => window.open('https://zknsites-publisher.gabrielrobin63.workers.dev/?preview=' + state.current.slug, '_blank');
+  $('#publishBtn').onclick = async () => {
+    const b = $('#publishBtn'); b.disabled = true; b.textContent = 'Publicando...';
+    try {
+      const r = await api(`/projects/${state.current.id}/publish`, 'POST', {});
+      toast('Site publicado!'); window.open(r.url, '_blank');
+    } catch (e) { toast(e.message); }
+    b.disabled = false; b.textContent = 'Publicar';
+  };
+  renderTree(); renderComponents();
+}
+
+// ======================= RENDER =======================
+let opts = { authMode: 'login', editor: false };
+function render(o = {}) {
+  Object.assign(opts, o);
+  const app = $('#app');
+  if (state.editor && state.current && state.doc) {
+    app.innerHTML = editorView();
+    return;
+  }
+  if (state.token && state.user) {
+    if (!state.projects.length && !opts.loaded) {
+      app.innerHTML = `<div class="auth-wrap"><div class="auth-bg"></div><p>Carregando...</p></div>`;
+      opts.loaded = true;
+      loadDashboard(); return;
+    }
+    app.innerHTML = dashboardView(); bindDashboard(); return;
+  }
+  app.innerHTML = authView(opts.authMode); bindAuth(opts.authMode);
+}
+
+// Boot
+if (state.token && state.user) {
+  try { const r = await api('/auth/me'); state.user = r.user; localStorage.setItem(USER_KEY, JSON.stringify(r.user)); } catch { logout(); }
+}
+render();

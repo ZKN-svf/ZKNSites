@@ -1,0 +1,40 @@
+name = "zknsites-api"
+main = "src/index.ts"
+compatibility_date = "2026-11-22"
+compatibility_flags = ["nodejs_compat"]
+
+# Banco de dados principal
+[[d1_databases]]
+binding = "DB"
+database_name = "zknsites-db"
+database_id = "70a46de2-b846-4ce7-b5ab-5e2b33e3cc71"
+migrations_dir = "../../infra/migrations"
+
+# Assets dos projetos (imagens, vÃƒÂ­deos, uploads)
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "zknsites-assets"
+
+# Cache de publicaÃƒÂ§ÃƒÂ£o / configuraÃƒÂ§ÃƒÂµes
+[[kv_namespaces]]
+binding = "CACHE"
+id = "b9c303b0fbf14403a31a0175f01df61c"
+
+[[kv_namespaces]]
+binding = "PUBLISHED"
+id = "c4165700bf2747d7b4dc7dbc37c762f3"
+
+[vars]
+APP_NAME = "ZKNSites"
+# DomÃƒÂ­nio base para publicaÃƒÂ§ÃƒÂ£o (configure depois de registrar o domÃƒÂ­nio)
+PUBLISH_BASE_DOMAIN = "zknsites.com"
+# Enquanto zknsites.com nÃ£o estiver registrado, publicaÃ§Ãµes usam este preview funcional
+PUBLISH_PREVIEW_URL = "https://zknsites-publisher.gabrielrobin63.workers.dev/?preview="
+# DomÃƒÂ­nio onde a aplicaÃƒÂ§ÃƒÂ£o builder roda
+BUILDER_URL = "https://zknsites-app.gabrielrobin63.workers.dev"
+
+# Segredos (configurar com wrangler secret put Ã¢â‚¬â€ NUNCA no cÃƒÂ³digo):
+# JWT_SECRET
+# RESEND_API_KEY (e-mail / verificaÃƒÂ§ÃƒÂ£o)
+# CLOUDFLARE_API_TOKEN (para provisionar domÃƒÂ­nios customizados via API)
+# CLOUDFLARE_ACCOUNT_ID (opcional, jÃƒÂ¡ disponÃƒÂ­vel via wrangler whoami)

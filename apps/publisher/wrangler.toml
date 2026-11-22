@@ -1,0 +1,16 @@
+name = "zknsites-publisher"
+main = "src/index.ts"
+compatibility_date = "2026-11-22"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "zknsites-db"
+database_id = "70a46de2-b846-4ce7-b5ab-5e2b33e3cc71"
+
+[[kv_namespaces]]
+binding = "PUBLISHED"
+id = "c4165700bf2747d7b4dc7dbc37c762f3"
+
+[vars]
+APP_NAME = "ZKNSites Publisher"
