@@ -122,7 +122,7 @@ a{color:var(--accent);text-decoration:none}
 .seg button{flex:1;background:transparent;border:0;padding:6px;border-radius:6px;font-size:10px;color:var(--muted)}
 .seg button.on{background:var(--accent);color:#fff;font-weight:700}
 .canvas-wrap{padding:24px;display:flex;justify-content:center;min-height:100%}
-#canvas{width:100%;max-width:1100px;background:#fff;color:#111;min-height:700px;box-shadow:0 20px 60px rgba(0,0,0,.3);transition:width .25s;position:relative}
+#canvas{width:100%;max-width:1100px;background:transparent;color:inherit;min-height:700px;box-shadow:none;transition:width .25s;position:relative;border:1px dashed rgba(139,154,192,.25);border-radius:6px}
 #canvas.tablet{max-width:768px}
 #canvas.mobile{max-width:390px}
 #canvas *{cursor:default}
