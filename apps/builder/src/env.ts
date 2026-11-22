@@ -10,6 +10,7 @@ export interface Env {
   APP_NAME: string;
   PUBLISH_BASE_DOMAIN: string;
   PUBLISH_PREVIEW_URL?: string;
+  PUBLISH_SITE_URL?: string;
   BUILDER_URL: string;
   NEXAS_RELAY_URL?: string;
   NEXAS_RELAY_TOKEN?: string;

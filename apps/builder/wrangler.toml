@@ -32,7 +32,8 @@ APP_NAME = "ZKNSites"
 # DomÃƒÂ­nio base para publicaÃƒÂ§ÃƒÂ£o (configure depois de registrar o domÃƒÂ­nio)
 PUBLISH_BASE_DOMAIN = "zknsites.com"
 # Enquanto zknsites.com nÃ£o estiver registrado, publicaÃ§Ãµes usam este preview funcional
-PUBLISH_PREVIEW_URL = "https://zknsites-publisher.gabrielrobin63.workers.dev/?preview="
+PUBLISH_PREVIEW_URL = "https://zknsites.pages.dev/?preview="
+PUBLISH_SITE_URL = "https://zknsites.pages.dev/s/"
 # DomÃƒÂ­nio onde a aplicaÃƒÂ§ÃƒÂ£o builder roda
 BUILDER_URL = "https://zknsites-app.gabrielrobin63.workers.dev"
 

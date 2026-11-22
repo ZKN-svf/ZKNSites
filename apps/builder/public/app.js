@@ -1241,12 +1241,34 @@ function bindAI() {
   input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); enviar(); } };
 }
 
+function abrirVisualizador(url, titulo, publicado) {
+  const antigo = $('#znViewer'); if (antigo) antigo.remove();
+  const div = document.createElement('div');
+  div.className = 'modal'; div.id = 'znViewer';
+  div.innerHTML = `<div class="modal-card" style="width:min(1100px,96vw);max-height:94vh;padding:0;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--line)">
+      <strong style="font-size:13px">${publicado ? '🌐 Site publicado' : '👁️ Pré-visualização'}</strong>
+      <span style="font-size:11px;color:var(--muted);flex:1">${esc(titulo || '')}</span>
+      <button class="btn sm ghost" id="znViewerCopy">Copiar link</button>
+      <button class="btn sm ghost" id="znViewerClose">Fechar</button>
+    </div>
+    <iframe src="${esc(url)}" title="Visualização" style="flex:1;width:100%;border:0;background:#fff;min-height:70vh"></iframe>
+  </div>`;
+  document.body.appendChild(div);
+  $('#znViewerClose', div).onclick = () => div.remove();
+  div.addEventListener('click', (e) => { if (e.target === div) div.remove(); });
+  $('#znViewerCopy', div).onclick = async () => {
+    try { await navigator.clipboard.writeText(url); toast('Link copiado!'); }
+    catch (_) { toast('Não foi possível copiar.'); }
+  };
+}
 async function publicarSite() {
   const b = $('#publishBtn');
   if (b) { b.disabled = true; b.textContent = 'Publicando...'; }
   try {
     const r = await api(`/projects/${state.current.id}/publish`, 'POST', {});
-    toast('Site publicado!'); window.open(r.url, '_blank');
+    toast('Site publicado!');
+    abrirVisualizador(r.url, state.current?.name || '', true);
   } catch (e) { toast(e.message); }
   if (b) { b.disabled = false; b.textContent = 'Publicar'; }
 }
@@ -1282,7 +1304,8 @@ function bindEditor() {
     const btn = $('#previewBtn'); btn.disabled = true; btn.textContent = 'Abrindo...';
     try {
       const r = await api(`/projects/${state.current.id}/preview`, 'POST', { document: state.doc, pageId: state.pageId });
-      window.open(r.url, '_blank');
+      // Abre DENTRO do editor — sem nova aba e sem mostrar a URL do publisher
+      abrirVisualizador(r.url, state.current?.name || '', false);
     } catch (e) { toast(e.message); }
     btn.disabled = false; btn.textContent = 'Pré-visualizar';
   };

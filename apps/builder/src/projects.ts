@@ -307,9 +307,11 @@ export async function handleProjects(path: string, method: string, req: Request,
     const vid = uid('v_');
     // Enquanto o domínio não estiver ativo, usa token opaco no publisher.
     const previewToken = uid('prev_') + '_' + p.slug;
-    const url = env.PUBLISH_PREVIEW_URL
-      ? `${env.PUBLISH_PREVIEW_URL}${previewToken}`
-      : `https://${p.slug}.${env.PUBLISH_BASE_DOMAIN}/`;
+    const url = env.PUBLISH_SITE_URL
+      ? `${env.PUBLISH_SITE_URL}${p.slug}`
+      : env.PUBLISH_PREVIEW_URL
+        ? `${env.PUBLISH_PREVIEW_URL}${previewToken}`
+        : `https://${p.slug}.${env.PUBLISH_BASE_DOMAIN}/`;
     await env.DB.batch([
       env.DB.prepare('INSERT INTO versions (id,project_id,label,document,pages_snapshot,created_at,published) VALUES (?,?,?,?,?,?,1)')
         .bind(vid, p.id, `Publicação ${new Date().toLocaleString('pt-BR')}`, doc, JSON.stringify(pages.results || []), now()),

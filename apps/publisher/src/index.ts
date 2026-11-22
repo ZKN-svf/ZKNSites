@@ -54,6 +54,10 @@ export default {
       if (parts.length >= 3 && parts[1] === 'zknsites') slug = parts[0];
     }
 
+    // Site publicado por slug (via proxy do domínio limpo)
+    const siteParam = url.searchParams.get('site');
+    if (siteParam && /^[\w-]+$/.test(siteParam)) slug = siteParam;
+
     // Preview: ?preview=TOKEN_OPACO&page=SLUG
     const preview = url.searchParams.get('preview') || url.pathname.match(/^\/s\/([\w-]+)/)?.[1];
     const pageParam = url.searchParams.get('page') || '';
