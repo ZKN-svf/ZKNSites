@@ -12,5 +12,9 @@ database_id = "70a46de2-b846-4ce7-b5ab-5e2b33e3cc71"
 binding = "PUBLISHED"
 id = "c4165700bf2747d7b4dc7dbc37c762f3"
 
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "zknsites-assets"
+
 [vars]
 APP_NAME = "ZKNSites Publisher"

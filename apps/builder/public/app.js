@@ -212,6 +212,7 @@ async function openEditor(id) {
     state.current = r.project;
     state.pageId = r.pages[0].id;
     state.doc = JSON.parse(r.documents[state.pageId]);
+    state.current.pages = r.pages; state.current.documents = r.documents;
     state.selectedId = null; state.undo = []; state.redo = [];
     state.editor = true;
     render({ editor: true });
@@ -312,23 +313,21 @@ function updateSelectionOverlay() {
   const rect = () => target.getBoundingClientRect();
   const cRect = () => canvas.getBoundingClientRect();
 
+  // Cria tag e alças UMA VEZ (recriá-las a cada frame quebra os handlers)
+  const tag = document.createElement('div');
+  tag.className = 'sel-tag'; tag.textContent = n.name || n.type;
+  overlay.appendChild(tag);
+  ['nw','ne','sw','se'].forEach(pos => {
+    const h = document.createElement('div');
+    h.className = 'sel-handle ' + pos; h.dataset.handle = pos;
+    overlay.appendChild(h);
+  });
   function draw() {
     const r = rect(), c = cRect();
     overlay.style.left = (r.left - c.left) + 'px';
     overlay.style.top = (r.top - c.top) + 'px';
     overlay.style.width = r.width + 'px';
     overlay.style.height = r.height + 'px';
-    const tag = document.createElement('div');
-    tag.className = 'sel-tag';
-    tag.textContent = n.name || n.type;
-    overlay.appendChild(tag);
-    // alças
-    ['nw','ne','sw','se'].forEach(pos => {
-      const h = document.createElement('div');
-      h.className = 'sel-handle ' + pos;
-      h.dataset.handle = pos;
-      overlay.appendChild(h);
-    });
   }
   draw();
 
@@ -338,8 +337,12 @@ function updateSelectionOverlay() {
     e.preventDefault(); e.stopPropagation();
     snapshot();
     const startX = e.clientX, startY = e.clientY;
-    const l0 = px(getStyleVal(n, 'left')), t0 = px(getStyleVal(n, 'top'));
+    // Posição atual real do elemento no fluxo (evita salto ao torná-lo absoluto)
+    const tr = target.getBoundingClientRect(), cr = canvas.getBoundingClientRect();
+    const l0 = tr.left - cr.left, t0 = tr.top - cr.top;
     n.styles.position = { [state.device]: 'absolute' };
+    setStyleVal(n, 'left', l0 + 'px'); setStyleVal(n, 'top', t0 + 'px');
+    applyLiveStyle(target, n); draw2();
     const move = (ev) => {
       setStyleVal(n, 'left', (l0 + ev.clientX - startX) + 'px');
       setStyleVal(n, 'top', (t0 + ev.clientY - startY) + 'px');
@@ -499,6 +502,16 @@ function renderProperties() {
       <div class="prop"><label>Texto</label><input id="propText" value="${esc(n.text || '')}"></div>
       <div class="prop"><label>Conteúdo</label><input id="propContent" value="${esc(n.html || '')}" placeholder="HTML (opcional)"></div>
       <div class="prop"><label>Imagem/Link</label><input id="propSrc" value="${esc(n.src || n.href || '')}"></div>
+      ${(n.type === 'link' || n.type === 'button') && state.current?.pages?.length ? `
+      <div class="prop" style="grid-template-columns:1fr">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="propGoPage" ${n.href && n.href.startsWith('#page:') ? 'checked' : ''}> Ir para outra página
+        </label>
+        <select id="propPageSelect" style="width:100%;padding:7px;border:1px solid var(--line);border-radius:7px;background:var(--bg-2);font-size:11px">
+          <option value="">— selecione —</option>
+          ${state.current.pages.map(pg => `<option value="#page:${pg.id}" ${n.href === '#page:' + pg.id ? 'selected' : ''}>${esc(pg.name)}</option>`).join('')}
+        </select>
+      </div>` : ''}
       ${n.type === 'image' ? `<div style="margin:8px 0">
         <label class="btn sm block" style="cursor:pointer">↑ Enviar foto
           <input type="file" id="uploadFoto" accept="image/*" style="display:none">
@@ -546,6 +559,21 @@ function renderProperties() {
   };
   $('#propText', el).oninput = () => { snapshot(); n.text = $('#propText', el).value; renderCanvas(); };
   $('#propSrc', el).oninput = () => { snapshot(); if (n.type === 'image' || n.type === 'video') n.src = $('#propSrc', el).value; else n.href = $('#propSrc', el).value; renderCanvas(); };
+  const goPage = $('#propGoPage', el), pageSel = $('#propPageSelect', el);
+  if (goPage && pageSel) {
+    goPage.onchange = () => {
+      snapshot();
+      if (goPage.checked) {
+        const v = pageSel.value || ('#page:' + state.current.pages[0].id);
+        pageSel.value = v; n.href = v;
+      } else n.href = '';
+      $('#propSrc', el).value = n.href || '';
+    };
+    pageSel.onchange = () => {
+      snapshot(); n.href = pageSel.value;
+      $('#propSrc', el).value = n.href;
+    };
+  }
   $('#dupEl', el).onclick = () => {
     snapshot();
     const copy = JSON.parse(JSON.stringify(n)); copy.id = uid(); copy.name = n.name + ' (cópia)';
@@ -562,11 +590,43 @@ function renderProperties() {
     state.selectedId = null; renderTree(); renderCanvas(); renderProperties();
   };
 }
+async function loadPages() {
+  const r = await api(`/projects/${state.current.id}`);
+  state.current.pages = r.pages;
+  state.current.documents = r.documents;
+}
+function renderPageTabs() {
+  const el = $('#pageTabs'); if (!el || !state.current?.pages) return;
+  el.innerHTML = state.current.pages.map(p =>
+    `<button class="page-tab ${p.id === state.pageId ? 'on' : ''}" data-page="${p.id}">${esc(p.name)}</button>`
+  ).join('');
+  $$('[data-page]', el).forEach(b => b.onclick = async () => {
+    if (b.dataset.page === state.pageId) return;
+    state.pageId = b.dataset.page;
+    state.doc = JSON.parse(state.current.documents[state.pageId]);
+    state.selectedId = null;
+    renderPageTabs(); renderCanvas(); renderProperties();
+  });
+}
+async function addPage() {
+  const nome = prompt('Nome da nova página:', `Página ${state.current.pages.length + 1}`);
+  if (!nome) return;
+  try {
+    const r = await api(`/projects/${state.current.id}/pages`, 'POST', { name: nome });
+    await loadPages();
+    state.pageId = r.page.id;
+    state.doc = JSON.parse(state.current.documents[state.pageId]);
+    renderPageTabs(); renderCanvas(); renderProperties();
+    toast('Página criada!');
+  } catch (e) { toast(e.message); }
+}
 function editorView() {
   return `<div class="editor">
     <div class="ed-top">
       <div class="brand"><div class="brand-mark">Z</div><span>ZKNSites</span></div>
       <input class="ed-name" id="edName" value="${esc(state.current.name)}">
+      <div class="page-tabs" id="pageTabs"></div>
+      <button class="btn sm ghost" id="addPageBtn" title="Nova página">+ Página</button>
       <span class="badge" id="saveStatus">✓ Salvo</span>
       <div class="spacer"></div>
       <div class="seg" id="deviceSeg">
@@ -611,6 +671,8 @@ function bindEditor() {
     btn.disabled = false; btn.textContent = 'Pré-visualizar';
   };
   $('#finishBtn').onclick = () => showCheckout();
+  $('#addPageBtn').onclick = addPage;
+  renderPageTabs();
   $('#publishBtn').onclick = async () => {
     const b = $('#publishBtn'); b.disabled = true; b.textContent = 'Publicando...';
     try {

@@ -8,6 +8,7 @@ import type { PageDocument } from '../../../packages/shared/src/types';
 export interface PublisherEnv {
   PUBLISHED: KVNamespace;
   DB: D1Database;
+  ASSETS: R2Bucket;
 }
 
 function esc(s: string): string {
@@ -25,6 +26,19 @@ export default {
   async fetch(request: Request, env: PublisherEnv): Promise<Response> {
     const url = new URL(request.url);
     const host = (request.headers.get('host') || url.hostname || '').toLowerCase();
+
+    // Assets enviados pelos usuários: /u/<userId>/<key>  (R2)
+    if (url.pathname.startsWith('/u/')) {
+      const key = url.pathname.slice(1);
+      const obj = await env.ASSETS.get(key);
+      if (!obj) return new Response('Not found', { status: 404 });
+      return new Response(obj.body, {
+        headers: {
+          'Content-Type': obj.httpMetadata?.contentType || 'application/octet-stream',
+          'Cache-Control': 'public, max-age=31536000, immutable',
+        },
+      });
+    }
 
     // Identifica o slug pelo host: slug.zknsites.com ou domÃƒÂ­nio customizado
     let slug = '';
@@ -56,6 +70,13 @@ export default {
     try {
       const site = JSON.parse(raw);
       // Tenta servir o HTML jÃƒÂ¡ renderizado no publish; se nÃƒÂ£o houver, renderiza agora
+      // Página específica: /sobre, /contato, etc.
+      const pathSlug = url.pathname.replace(/^\/+|\/+$/g, '');
+      if (pathSlug && site.pages?.[pathSlug]) {
+        return new Response(site.pages[pathSlug].html, {
+          headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=60' },
+        });
+      }
       if (site.html) {
         return new Response(site.html, {
           headers: {

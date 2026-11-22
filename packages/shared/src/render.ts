@@ -56,6 +56,7 @@ const TAG_BY_TYPE: Record<string, string> = {
   divider: 'hr', spacer: 'div', list: 'ul', 'list-item': 'li',
 };
 
+let LINKS: Record<string, string> = {};
 function renderNode(node: ElementNode, bp: keyof typeof BREAKPOINTS, classPrefix: string): string {
   const hidden = resolve(node.styles.hidden as ResponsiveValue, bp);
   if (hidden === 'true' || node.hidden) return '';
@@ -63,6 +64,12 @@ function renderNode(node: ElementNode, bp: keyof typeof BREAKPOINTS, classPrefix
   const tag = node.tag || TAG_BY_TYPE[node.type] || 'div';
   const cls = `zn-${node.type} ${(node.classes || []).join(' ')}`.trim();
   const attrs: string[] = [`class="${esc(cls)}"`, `data-zn-id="${esc(node.id)}"`];
+  if (tag === 'button' && node.href) {
+    let href = node.href;
+    const mp = href.match(/^#page:(.+)$/);
+    if (mp) href = LINKS[mp[1]] || mp[1];
+    attrs.push(`href="${esc(href)}"`);
+  }
   const decl = declsFor(node.styles, bp);
   if (decl) attrs.push(`style="${esc(decl)}"`);
   for (const [k, v] of Object.entries(node.attributes || {})) {
@@ -76,7 +83,10 @@ function renderNode(node: ElementNode, bp: keyof typeof BREAKPOINTS, classPrefix
   } else if (node.type === 'video') {
     attrs.push(`src="${esc(node.src || '')}"`, 'controls', 'playsinline', 'preload="metadata"');
   } else if (node.type === 'link') {
-    attrs.push(`href="${esc(node.href || '#')}"`);
+    let href = node.href || '#';
+    const mPage = href.match(/^#page:(.+)$/);
+    if (mPage) href = LINKS[mPage[1]] || mPage[1];
+    attrs.push(`href="${esc(href)}"`);
     inner = esc(node.text || node.name);
   } else if (node.type === 'input' || node.type === 'checkbox') {
     attrs.push(`type="${esc(node.attributes?.type || (node.type === 'checkbox' ? 'checkbox' : 'text'))}"`);
@@ -90,7 +100,8 @@ function renderNode(node: ElementNode, bp: keyof typeof BREAKPOINTS, classPrefix
   inner = inner || children || (node.html ? node.html : esc(node.text || ''));
 
   if (['img', 'input', 'hr', 'br'].includes(tag)) return `<${tag} ${attrs.join(' ')}>`;
-  return `<${tag} ${attrs.join(' ')}>${inner}</${tag}>`;
+  const finalTag = (tag === 'button' && node.href) ? 'a' : tag;
+  return `<${finalTag} ${attrs.join(' ')}>${inner}</${finalTag}>`;
 }
 
 function cssForTree(node: ElementNode, bp: keyof typeof BREAKPOINTS): string {
@@ -99,7 +110,8 @@ function cssForTree(node: ElementNode, bp: keyof typeof BREAKPOINTS): string {
   return rule + (node.children || []).map(c => cssForTree(c, bp)).join('');
 }
 
-export function renderPage(doc: PageDocument): RenderedSite {
+export function renderPage(doc: PageDocument, pageLinks: Record<string, string> = {}): RenderedSite {
+  LINKS = pageLinks;
   const baseCss = `
 *,*::before,*::after{box-sizing:border-box}
 html{margin:0;padding:0;scroll-behavior:smooth}

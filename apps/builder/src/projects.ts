@@ -141,6 +141,35 @@ export async function handleProjects(path: string, method: string, req: Request,
     return json({ ok: true, project: { id, slug } });
   }
 
+  // CRIAR PÁGINA
+  const mNewPage = path.match(/^\/projects\/([\w-]+)\/pages$/);
+  if (mNewPage && method === 'POST') {
+    const p = await env.DB.prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?').bind(mNewPage[1], user.id).first();
+    if (!p) return err('Projeto não encontrado.', 404);
+    const name = String(body.name || 'Nova página').slice(0, 80);
+    let slug = slugify(name);
+    const exists = await env.DB.prepare('SELECT id FROM pages WHERE project_id=? AND slug=?').bind(mNewPage[1], slug).first();
+    if (exists) slug += '-' + Math.random().toString(36).slice(2, 5);
+    const pageId = uid('pg_');
+    const doc: PageDocument = {
+      version: 1, meta: { title: name },
+      root: {
+        id: 'root', type: 'root', name: 'Página', styles: {}, children: [
+          { id: uid('n_'), type: 'section', name: 'Seção', styles: { padding: { desktop: '100px 24px' }, textAlign: { desktop: 'center' } }, children: [
+            { id: uid('n_'), type: 'heading', name: 'Título', text: name, styles: { fontSize: { desktop: '48px' }, fontWeight: { desktop: '800' } } },
+          ] },
+        ],
+      },
+    };
+    const maxOrder = await env.DB.prepare('SELECT COALESCE(MAX(order_index),0) AS n FROM pages WHERE project_id=?').bind(mNewPage[1]).first<any>();
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO pages (id,project_id,name,slug,is_home,order_index,created_at,updated_at) VALUES (?,?,?,?,0,?,?,?)')
+        .bind(pageId, mNewPage[1], name, slug, (maxOrder?.n || 0) + 1, now(), now()),
+      env.DB.prepare('INSERT INTO page_documents (page_id,document,updated_at) VALUES (?,?,?)').bind(pageId, JSON.stringify(doc), now()),
+    ]);
+    return json({ ok: true, page: { id: pageId, name, slug } });
+  }
+
   // SALVAR DOCUMENTO (autosave)
   const mDoc = path.match(/^\/projects\/([\w-]+)\/pages\/([\w-]+)\/document$/);
   if (mDoc && method === 'PUT') {
@@ -220,6 +249,7 @@ export async function handleProjects(path: string, method: string, req: Request,
     const token = uid('prev_') + '_' + mPrev[1];
     await env.PUBLISHED.put(`preview:${token}`, JSON.stringify({
       html: rendered.html, ts: now(), projectId: mPrev[1], userId: user.id,
+      pages: { home: { html: rendered.html, name: 'Home', isHome: true } },
     }), { expirationTtl: 1800 });
     const base = env.PUBLISH_PREVIEW_URL || 'https://zknsites-publisher.gabrielrobin63.workers.dev/?preview=';
     return json({ ok: true, url: `${base}${token}`, expiresIn: 1800 });
@@ -230,14 +260,15 @@ export async function handleProjects(path: string, method: string, req: Request,
   if (mPub && method === 'POST') {
     const p = await env.DB.prepare('SELECT * FROM projects WHERE id = ? AND user_id = ?').bind(mPub[1], user.id).first<any>();
     if (!p) return err('Projeto não encontrado.', 404);
-    const pages = await env.DB.prepare('SELECT id FROM pages WHERE project_id = ?').bind(p.id).all<any>();
+    const pages = await env.DB.prepare('SELECT id,name,slug,is_home FROM pages WHERE project_id = ? ORDER BY order_index').bind(p.id).all<any>();
     const first = pages.results?.[0]?.id;
     const d = first ? await env.DB.prepare('SELECT document FROM page_documents WHERE page_id = ?').bind(first).first<any>() : null;
     const doc = d?.document || '{}';
     const vid = uid('v_');
-    // Enquanto o domínio não estiver ativo, usa o preview funcional do publisher.
+    // Enquanto o domínio não estiver ativo, usa token opaco no publisher.
+    const previewToken = uid('prev_') + '_' + p.slug;
     const url = env.PUBLISH_PREVIEW_URL
-      ? `${env.PUBLISH_PREVIEW_URL}${p.slug}`
+      ? `${env.PUBLISH_PREVIEW_URL}${previewToken}`
       : `https://${p.slug}.${env.PUBLISH_BASE_DOMAIN}/`;
     await env.DB.batch([
       env.DB.prepare('INSERT INTO versions (id,project_id,label,document,pages_snapshot,created_at,published) VALUES (?,?,?,?,?,?,1)')
@@ -247,23 +278,38 @@ export async function handleProjects(path: string, method: string, req: Request,
         .bind(uid('pub_'), p.id, vid, url, now()),
       env.DB.prepare('UPDATE versions SET published = 0 WHERE project_id = ? AND id != ?').bind(p.id, vid),
     ]);
-    // publica no KV para o Worker de publicação servir sem consultar D1
+    // publica no KV: uma entrada por página + índice do site
+    const pageLinks: Record<string, string> = {};
+    for (const pg of pages.results || []) {
+      pageLinks[pg.id] = pg.is_home ? '' : `${pg.slug}`;
+    }
     const parsedDoc = JSON.parse(doc);
-    const rendered = renderPage({
-      ...parsedDoc,
-      meta: {
-        ...parsedDoc.meta,
-        title: p.seo_title || parsedDoc.meta?.title || p.name,
-        description: p.seo_description || p.description || parsedDoc.meta?.description,
-        favicon: p.favicon || parsedDoc.meta?.favicon,
-      },
-    });
-    const siteData = {
-      projectId: p.id, slug: p.slug, name: p.name, doc: parsedDoc, html: rendered.html,
+    const siteData: any = {
+      projectId: p.id, slug: p.slug, name: p.name, doc: parsedDoc,
       meta: { title: p.seo_title || p.name, description: p.seo_description || p.description, favicon: p.favicon },
       publishedAt: now(), versionId: vid,
+      pages: {},
     };
+    for (const pg of pages.results || []) {
+      const dd = await env.DB.prepare('SELECT document FROM page_documents WHERE page_id = ?').bind(pg.id).first<any>();
+      if (!dd) continue;
+      const pd = JSON.parse(dd.document);
+      const rendered = renderPage({
+        ...pd,
+        meta: {
+          ...pd.meta,
+          title: pd.meta?.title || (pg.is_home ? (p.seo_title || p.name) : `${pg.name} — ${p.name}`),
+          description: pd.meta?.description || p.seo_description || p.description,
+          favicon: p.favicon || pd.meta?.favicon,
+        },
+      }, pageLinks);
+      siteData.pages[pg.slug] = { html: rendered.html, name: pg.name, isHome: !!pg.is_home };
+      if (pg.is_home) siteData.html = rendered.html;
+    }
     await env.PUBLISHED.put(`site:${p.slug}`, JSON.stringify(siteData));
+    if (env.PUBLISH_PREVIEW_URL) {
+      await env.PUBLISHED.put(`preview:${previewToken}`, JSON.stringify(siteData));
+    }
     if (p.custom_domain && p.domain_verified) {
       await env.PUBLISHED.put(`domain:${p.custom_domain}`, p.slug);
     }

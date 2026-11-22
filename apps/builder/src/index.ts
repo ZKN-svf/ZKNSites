@@ -65,7 +65,7 @@ export default {
         await env.DB.prepare(
           'INSERT INTO assets (id,user_id,project_id,file_name,r2_key,mime_type,size,created_at) VALUES (?,?,?,?,?,?,?,?)'
         ).bind(uid('as_'), u.id, body.projectId || null, String(body.fileName || 'arquivo').slice(0, 200), key, mime, bytes.length, now()).run();
-        const publicUrl = `https://assets.zknsites.com/${key}`;
+        const publicUrl = `https://zknsites-publisher.gabrielrobin63.workers.dev/${key}`;
         return json({ ok: true, url: publicUrl, key, size: bytes.length });
       }
 
