@@ -544,10 +544,34 @@ function renderTree() {
       ${(n.children || []).map(c => walk(c, depth + 1)).join('')}`;
   };
   el.innerHTML = walk(state.doc.root);
-  $$('[data-tree]', el).forEach(x => x.onclick = (e) => {
-    e.stopPropagation();
-    selectNode(x.dataset.tree);
-    renderTree();
+  $$('[data-tree]', el).forEach(x => {
+    x.onclick = (e) => {
+      e.stopPropagation();
+      selectNode(x.dataset.tree);
+      renderTree();
+    };
+    // Soltar componente na árvore = adicionar como filho daquele elemento
+    x.ondragover = (e) => { e.preventDefault(); x.classList.add('drop-target'); };
+    x.ondragleave = () => x.classList.remove('drop-target');
+    x.ondrop = (e) => {
+      e.preventDefault(); e.stopPropagation(); x.classList.remove('drop-target');
+      const type = e.dataTransfer.getData('text/component');
+      if (!type) return;
+      const found = findNode(state.doc.root, x.dataset.tree);
+      if (!found) return;
+      snapshot();
+      const novo = newComponent(type);
+      // Dentro de um container, usa fluxo normal (relative) para organizar
+      novo.styles.position = { [state.device]: 'relative' };
+      novo.styles.left = { [state.device]: '0px' };
+      novo.styles.top = { [state.device]: '0px' };
+      found.node.children = found.node.children || [];
+      found.node.children.push(novo);
+      renderCanvas();
+      selectNode(novo.id);
+      renderTree();
+      toast(`Adicionado em "${found.node.name}"`);
+    };
   });
 }
 function renderComponents() {
