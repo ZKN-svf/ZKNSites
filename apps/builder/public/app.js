@@ -250,12 +250,14 @@ function undo() {
   if (!state.undo.length) return;
   state.redo.push(JSON.stringify(state.doc));
   state.doc = JSON.parse(state.undo.pop());
+  state.selectedId = null;
   renderCanvas(); renderProperties(); scheduleSave();
 }
 function redo() {
   if (!state.redo.length) return;
   state.undo.push(JSON.stringify(state.doc));
   state.doc = JSON.parse(state.redo.pop());
+  state.selectedId = null;
   renderCanvas(); renderProperties(); scheduleSave();
 }
 // Atalhos de teclado (Ctrl+Z desfazer, Ctrl+Y / Ctrl+Shift+Z refazer)
@@ -330,8 +332,8 @@ function updateSelectionOverlay() {
   const r0 = target.getBoundingClientRect();
   const c0 = canvas.getBoundingClientRect();
   let dx = 0, dy = 0, w0 = r0.width, h0 = r0.height;
-  const baseLeft = r0.left - c0.left;
-  const baseTop = r0.top - c0.top;
+  let baseLeft = r0.left - c0.left;
+  let baseTop = r0.top - c0.top;
 
   // Cria tag e alças UMA VEZ (recriá-las a cada frame quebra os handlers)
   const tag = document.createElement('div');
@@ -343,8 +345,9 @@ function updateSelectionOverlay() {
     overlay.appendChild(h);
   });
   function draw() {
-    overlay.style.left = (baseLeft + dx) + 'px';
-    overlay.style.top = (baseTop + dy) + 'px';
+    // -1px compensa a borda do overlay (box-sizing)
+    overlay.style.left = (baseLeft + dx - 1) + 'px';
+    overlay.style.top = (baseTop + dy - 1) + 'px';
     overlay.style.width = w0 + 'px';
     overlay.style.height = h0 + 'px';
   }
@@ -374,7 +377,8 @@ function updateSelectionOverlay() {
       target.style.transform = '';
       dx = 0; dy = 0;
       applyLiveStyle(target, n);
-      draw();
+      // Recria o overlay na posição final (garante que acompanhe o elemento)
+      updateSelectionOverlay();
       scheduleSave();
     };
     window.addEventListener('pointermove', move);
@@ -435,41 +439,70 @@ function applyLiveStyle(el, n) {
   });
 }
 
+// Um único ponto de seleção — evita handlers duplicados que "brigam" no clique
+function selectNode(id) {
+  if (state.selectedId === id) return; // nada mudou: não recria nada
+  state.selectedId = id;
+  const canvas = $('#canvas');
+  if (canvas) {
+    $$('[data-zn-id].selected', canvas).forEach(x => x.classList.remove('selected'));
+    if (id) {
+      const el = canvas.querySelector(`[data-zn-id="${id}"]`);
+      if (el) el.classList.add('selected');
+    }
+  }
+  renderProperties();
+  updateSelectionOverlay();
+}
+
+let canvasBound = false;
 function renderCanvas() {
   const canvas = $('#canvas'); if (!canvas || !state.doc) return;
+  // Remove o overlay ANTES de trocar o innerHTML (senão ele vira órfão no DOM)
+  const ov = $('#selOverlay'); if (ov) ov.remove();
+
   canvas.className = state.device;
   canvas.innerHTML = nodeHTML(state.doc.root);
-  // Root como referência dos filhos absolutos (apenas no editor)
   canvas.style.position = 'relative';
   canvas.style.minHeight = '900px';
-  // No editor, links e botões NUNCA navegam — apenas selecionam.
+
+  // <a>/<button> nunca navegam no editor
   $$('a, button', canvas).forEach(a => {
-    a.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); }, true);
     a.setAttribute('tabindex', '-1');
+    a.setAttribute('data-nolink', '1');
   });
-  canvas.addEventListener('click', (e) => {
-    const a = e.target.closest && e.target.closest('a');
-    if (a) e.preventDefault();
-  }, true);
-  $$('[data-zn-id]', canvas).forEach(el => {
-    el.onclick = (e) => {
-      e.stopPropagation();
-      $$('[data-zn-id].selected', canvas).forEach(x => x.classList.remove('selected'));
-      el.classList.add('selected');
-      state.selectedId = el.dataset.znId;
-      renderProperties();
-      updateSelectionOverlay();
-    };
-    // drag & drop de componentes
-    el.ondragover = (e) => { e.preventDefault(); el.classList.add('drop-target'); };
-    el.ondragleave = () => el.classList.remove('drop-target');
-    el.ondrop = (e) => {
-      e.preventDefault(); e.stopPropagation(); el.classList.remove('drop-target');
+
+  if (!canvasBound) {
+    canvasBound = true;
+
+    // Captura: bloqueia qualquer navegação vinda de links
+    canvas.addEventListener('click', (e) => {
+      if (e.target.closest && e.target.closest('a')) e.preventDefault();
+    }, true);
+
+    // Seleção por delegação (um único handler)
+    canvas.addEventListener('click', (e) => {
+      const el = e.target.closest && e.target.closest('[data-zn-id]');
+      selectNode(el ? el.dataset.znId : null);
+    });
+
+    // Drag & drop por delegação
+    canvas.addEventListener('dragover', (e) => {
+      const el = e.target.closest && e.target.closest('[data-zn-id]');
+      if (el) { e.preventDefault(); el.classList.add('drop-target'); }
+    });
+    canvas.addEventListener('dragleave', (e) => {
+      const el = e.target.closest && e.target.closest('[data-zn-id]');
+      if (el) el.classList.remove('drop-target');
+    });
+    canvas.addEventListener('drop', (e) => {
+      const el = e.target.closest && e.target.closest('[data-zn-id]');
+      if (el) el.classList.remove('drop-target');
       const type = e.dataTransfer.getData('text/component');
       if (!type) return;
+      e.preventDefault(); e.stopPropagation();
       snapshot();
       const novo = newComponent(type);
-      // Posição exata onde o usuário soltou, relativa ao canvas (estilo editor de imagem)
       const cr = canvas.getBoundingClientRect();
       const x = Math.max(0, Math.round(e.clientX - cr.left - 30));
       const y = Math.max(0, Math.round(e.clientY - cr.top - 15));
@@ -477,20 +510,19 @@ function renderCanvas() {
       novo.styles.left = { [state.device]: x + 'px' };
       novo.styles.top = { [state.device]: y + 'px' };
       novo.styles.zIndex = { [state.device]: String(++state.maxZ) };
-      // Adiciona no ROOT — elementos existentes nunca são empurrados
       state.doc.root.children = state.doc.root.children || [];
       state.doc.root.children.push(novo);
-      state.selectedId = novo.id;
-      const ov = $('#selOverlay'); if (ov) ov.remove();
-      renderCanvas(); renderProperties();
-    };
-  });
-  canvas.onclick = () => {
-    $$('[data-zn-id].selected', canvas).forEach(x => x.classList.remove('selected'));
-    state.selectedId = null; renderProperties();
-    const ov = $('#selOverlay'); if (ov) ov.remove();
-  };
-  updateSelectionOverlay();
+      const ov2 = $('#selOverlay'); if (ov2) ov2.remove();
+      renderCanvas();
+      selectNode(novo.id);
+    });
+  }
+
+  if (state.selectedId) {
+    const el = canvas.querySelector(`[data-zn-id="${state.selectedId}"]`);
+    if (el) el.classList.add('selected');
+    updateSelectionOverlay();
+  }
 }
 function newComponent(type) {
   const defaults = {
@@ -513,8 +545,9 @@ function renderTree() {
   };
   el.innerHTML = walk(state.doc.root);
   $$('[data-tree]', el).forEach(x => x.onclick = (e) => {
-    e.stopPropagation(); state.selectedId = x.dataset.tree;
-    renderTree(); renderCanvas(); renderProperties();
+    e.stopPropagation();
+    selectNode(x.dataset.tree);
+    renderTree();
   });
 }
 function renderComponents() {
@@ -650,7 +683,7 @@ function renderProperties() {
     const copy = JSON.parse(JSON.stringify(n)); copy.id = uid(); copy.name = n.name + ' (cópia)';
     const arr = found.parent ? found.parent.children : state.doc.root.children;
     arr.splice(arr.indexOf(n) + 1, 0, copy);
-    state.selectedId = copy.id; renderTree(); renderCanvas(); renderProperties();
+    renderCanvas(); selectNode(copy.id); renderTree();
   };
   $('#lockEl', el).onclick = () => { snapshot(); n.locked = !n.locked; renderProperties(); };
   $('#delEl', el).onclick = () => {
@@ -658,7 +691,7 @@ function renderProperties() {
     snapshot();
     const arr = found.parent ? found.parent.children : state.doc.root.children;
     arr.splice(arr.indexOf(n), 1);
-    state.selectedId = null; renderTree(); renderCanvas(); renderProperties();
+    renderCanvas(); selectNode(null); renderTree();
   };
 }
 async function loadPages() {
