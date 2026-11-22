@@ -312,6 +312,7 @@ function setStyleVal(n, key, val, bp = state.device) {
 function px(v) { return parseFloat(String(v || '').replace('px', '')) || 0; }
 
 // Overlay flutuante de seleção: move e redimensiona com o mouse
+let moverSelecionado = null;
 function updateSelectionOverlay() {
   const old = $('#selOverlay'); if (old) old.remove();
   const canvas = $('#canvas');
@@ -353,36 +354,54 @@ function updateSelectionOverlay() {
   }
   draw();
 
-  // MOVER pela TAG do overlay — usa transform (não altera o layout, sem pulos)
-  tag.onpointerdown = (e) => {
+  // MOVER: pela tag OU arrastando o próprio elemento (ver handler no canvas)
+  moverSelecionado = (e) => {
+    if (e.button !== 0) return;
+    if (e.target.closest && e.target.closest('.sel-handle')) return; // alça cuida do resize
     e.preventDefault(); e.stopPropagation();
-    snapshot();
     const startX = e.clientX, startY = e.clientY;
     const dx0 = dx, dy0 = dy;
+    let moved = false;
     const move = (ev) => {
-      dx = dx0 + (ev.clientX - startX);
-      dy = dy0 + (ev.clientY - startY);
+      const ndx = dx0 + (ev.clientX - startX);
+      const ndy = dy0 + (ev.clientY - startY);
+      if (!moved && Math.abs(ndx) + Math.abs(ndy) < 3) return; // ignora clique simples
+      moved = true;
+      dx = ndx; dy = ndy;
       target.style.transform = `translate3d(${dx}px,${dy}px,0)`;
       draw();
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
-      // Só grava left/top no documento ao SOLTAR (evita reflow a cada frame)
-      const l0 = px(getStyleVal(n, 'left')) || 0;
-      const t0 = px(getStyleVal(n, 'top')) || 0;
-      setStyleVal(n, 'left', (l0 + dx) + 'px');
-      setStyleVal(n, 'top', (t0 + dy) + 'px');
+      if (!moved) { target.style.transform = ''; return; }
+      // Posição visual FINAL (com o transform ainda aplicado).
+      const rFinal = target.getBoundingClientRect();
       target.style.transform = '';
+      // Converte para coordenadas do offsetParent — evita o "salto" quando o
+      // elemento sai do fluxo e passa a ser absolute dentro de outro pai.
+      const parent = target.offsetParent || canvas;
+      const pr = parent.getBoundingClientRect();
+      const leftFinal = Math.round(rFinal.left - pr.left - parent.clientLeft);
+      const topFinal = Math.round(rFinal.top - pr.top - parent.clientTop);
+      snapshot();
+      setStyleVal(n, 'position', 'absolute');
+      // margins padrão (ex: h1 tem ~37px) somam ao top quando vira absolute
+      setStyleVal(n, 'margin', '0');
+      // sem largura explícita o elemento encolhe ao sair do fluxo
+      setStyleVal(n, 'width', Math.round(rFinal.width) + 'px');
+      setStyleVal(n, 'left', leftFinal + 'px');
+      setStyleVal(n, 'top', topFinal + 'px');
       dx = 0; dy = 0;
       applyLiveStyle(target, n);
-      // Recria o overlay na posição final (garante que acompanhe o elemento)
       updateSelectionOverlay();
+      renderProperties();
       scheduleSave();
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   };
+  tag.onpointerdown = moverSelecionado;
 
   // REDIMENSIONAR com as alças
   $$('.sel-handle', overlay).forEach(h => {
@@ -432,7 +451,7 @@ function targetForNode(n) {
 function applyLiveStyle(el, n) {
   if (!el) return;
   const bp = state.device;
-  ['position','left','top','width','height','zIndex','opacity'].forEach(k => {
+  ['position','left','top','width','height','margin','zIndex','opacity'].forEach(k => {
     const v = getStyleVal(n, k, bp);
     if (v) el.style.setProperty(k, v);
   });
@@ -483,6 +502,16 @@ function renderCanvas() {
     canvas.addEventListener('click', (e) => {
       const el = e.target.closest && e.target.closest('[data-zn-id]');
       selectNode(el ? el.dataset.znId : null);
+    });
+
+    // Mover arrastando o próprio elemento com o mouse
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      if (e.target.closest && e.target.closest('.sel-tag, .sel-handle')) return;
+      const el = e.target.closest && e.target.closest('[data-zn-id]');
+      if (!el) return;
+      if (state.selectedId !== el.dataset.znId) selectNode(el.dataset.znId);
+      if (moverSelecionado) moverSelecionado(e);
     });
 
     // Drag & drop por delegação
