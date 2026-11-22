@@ -44,7 +44,9 @@ export default {
 
     if (!slug) return fallback('Site nÃƒÂ£o encontrado', 'Este endereÃƒÂ§o nÃƒÂ£o corresponde a nenhum site publicado.');
 
-    const raw = await env.PUBLISHED.get(`site:${slug}`);
+    // Preview do editor tem prioridade (TTL curto)
+    const previewRaw = await env.PUBLISHED.get(`preview:${slug}`);
+    const raw = previewRaw || await env.PUBLISHED.get(`site:${slug}`);
     if (!raw) return fallback('Site nÃƒÂ£o encontrado', 'Este site ainda nÃƒÂ£o foi publicado ou foi despublicado.');
 
     try {

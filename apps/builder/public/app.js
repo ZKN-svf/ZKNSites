@@ -451,7 +451,14 @@ function bindEditor() {
   });
   $('#undoBtn').onclick = undo; $('#redoBtn').onclick = redo;
   $('#backBtn').onclick = () => { state.current = null; state.doc = null; loadDashboard(); };
-  $('#previewBtn').onclick = () => window.open('https://zknsites-publisher.gabrielrobin63.workers.dev/?preview=' + state.current.slug, '_blank');
+  $('#previewBtn').onclick = async () => {
+    const btn = $('#previewBtn'); btn.disabled = true; btn.textContent = 'Abrindo...';
+    try {
+      const r = await api(`/projects/${state.current.id}/preview`, 'POST', { document: state.doc });
+      window.open(r.url, '_blank');
+    } catch (e) { toast(e.message); }
+    btn.disabled = false; btn.textContent = 'Pré-visualizar';
+  };
   $('#finishBtn').onclick = () => showCheckout();
   $('#publishBtn').onclick = async () => {
     const b = $('#publishBtn'); b.disabled = true; b.textContent = 'Publicando...';

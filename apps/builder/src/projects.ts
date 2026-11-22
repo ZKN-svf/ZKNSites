@@ -205,6 +205,23 @@ export async function handleProjects(path: string, method: string, req: Request,
     return json({ ok: true, versionId: vid });
   }
 
+  // PREVIEW do estado atual do editor (sem publicar)
+  const mPrev = path.match(/^\/projects\/([\w-]+)\/preview$/);
+  if (mPrev && method === 'POST') {
+    const p = await env.DB.prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?').bind(mPrev[1], user.id).first();
+    if (!p) return err('Projeto não encontrado.', 404);
+    const doc = body.document as any;
+    if (!doc || !doc.root) return err('Documento inválido.');
+    const rendered = renderPage({
+      ...doc,
+      meta: { ...doc.meta, title: doc.meta?.title || 'Pré-visualização' },
+    });
+    const token = mPrev[1];
+    await env.PUBLISHED.put(`preview:${token}`, JSON.stringify({ html: rendered.html, ts: now() }), { expirationTtl: 3600 });
+    const base = env.PUBLISH_PREVIEW_URL || 'https://zknsites-publisher.gabrielrobin63.workers.dev/?preview=';
+    return json({ ok: true, url: `${base}${token}` });
+  }
+
   // PUBLICAR / DESPUBLICAR
   const mPub = path.match(/^\/projects\/([\w-]+)\/publish$/);
   if (mPub && method === 'POST') {
