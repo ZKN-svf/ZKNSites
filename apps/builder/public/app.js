@@ -19,6 +19,7 @@ const state = {
   redo: [],
   saveTimer: null,
   dirty: false,
+  maxZ: 10,
 };
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -213,7 +214,7 @@ async function openEditor(id) {
     state.pageId = r.pages[0].id;
     state.doc = JSON.parse(r.documents[state.pageId]);
     state.current.pages = r.pages; state.current.documents = r.documents;
-    state.selectedId = null; state.undo = []; state.redo = [];
+    state.selectedId = null; state.undo = []; state.redo = []; state.maxZ = 10;
     state.editor = true;
     render({ editor: true });
     bindEditor(); renderCanvas(); renderProperties();
@@ -438,6 +439,9 @@ function renderCanvas() {
   const canvas = $('#canvas'); if (!canvas || !state.doc) return;
   canvas.className = state.device;
   canvas.innerHTML = nodeHTML(state.doc.root);
+  // Root como referência dos filhos absolutos (apenas no editor)
+  canvas.style.position = 'relative';
+  canvas.style.minHeight = '900px';
   // No editor, links e botões NUNCA navegam — apenas selecionam.
   $$('a, button', canvas).forEach(a => {
     a.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); }, true);
@@ -464,19 +468,21 @@ function renderCanvas() {
       const type = e.dataTransfer.getData('text/component');
       if (!type) return;
       snapshot();
-      const found = findNode(state.doc.root, el.dataset.znId);
-      if (found) {
-        const novo = newComponent(type);
-        // elemento novo começa relativo, sem herdar left/top absoluto do pai
-        novo.styles.position = { [state.device]: 'relative' };
-        novo.styles.left = { [state.device]: '0px' };
-        novo.styles.top = { [state.device]: '0px' };
-        found.node.children = found.node.children || [];
-        found.node.children.push(novo);
-        state.selectedId = novo.id;
-        const ov = $('#selOverlay'); if (ov) ov.remove();
-        renderCanvas(); renderProperties();
-      }
+      const novo = newComponent(type);
+      // Posição exata onde o usuário soltou, relativa ao canvas (estilo editor de imagem)
+      const cr = canvas.getBoundingClientRect();
+      const x = Math.max(0, Math.round(e.clientX - cr.left - 30));
+      const y = Math.max(0, Math.round(e.clientY - cr.top - 15));
+      novo.styles.position = { [state.device]: 'absolute' };
+      novo.styles.left = { [state.device]: x + 'px' };
+      novo.styles.top = { [state.device]: y + 'px' };
+      novo.styles.zIndex = { [state.device]: String(++state.maxZ) };
+      // Adiciona no ROOT — elementos existentes nunca são empurrados
+      state.doc.root.children = state.doc.root.children || [];
+      state.doc.root.children.push(novo);
+      state.selectedId = novo.id;
+      const ov = $('#selOverlay'); if (ov) ov.remove();
+      renderCanvas(); renderProperties();
     };
   });
   canvas.onclick = () => {
@@ -620,7 +626,7 @@ function renderProperties() {
   };
   if (imgLayer) imgLayer.onchange = () => {
     snapshot();
-    setStyleVal(n, 'zIndex', imgLayer.value === 'back' ? '-1' : '1');
+    setStyleVal(n, 'zIndex', imgLayer.value === 'back' ? '-1' : String(++state.maxZ));
     setStyleVal(n, 'position', 'relative');
     renderCanvas();
   };
