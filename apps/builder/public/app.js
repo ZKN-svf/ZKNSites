@@ -257,6 +257,18 @@ function redo() {
   state.doc = JSON.parse(state.redo.pop());
   renderCanvas(); renderProperties(); scheduleSave();
 }
+// Atalhos de teclado (Ctrl+Z desfazer, Ctrl+Y / Ctrl+Shift+Z refazer)
+document.addEventListener('keydown', (e) => {
+  if (!state.editor || !state.doc) return;
+  const tag = (e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+    if (e.shiftKey) redo(); else undo();
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+    e.preventDefault(); redo();
+  }
+});
 function nodeHTML(n) {
   if (n.hidden) return '';
   const tag = n.tag || ({ heading:'h2', text:'p', image:'img', button:'button', link:'a', container:'div', section:'section', header:'header', footer:'footer', card:'article', menu:'nav', divider:'hr', spacer:'div', grid:'div', columns:'div', column:'div', gallery:'div', testimonial:'blockquote', form:'form', input:'input', list:'ul', table:'table', icon:'span' }[n.type] || 'div');
@@ -269,6 +281,7 @@ function nodeHTML(n) {
       borderRadius:'border-radius',border:'border',boxShadow:'box-shadow',opacity:'opacity',textTransform:'text-transform',
       gridTemplateColumns:'grid-template-columns',flexDirection:'flex-direction',justifyContent:'justify-content',
       alignItems:'align-items',minHeight:'min-height',maxWidth:'max-width',lineHeight:'line-height',letterSpacing:'letter-spacing',
+      position:'position',left:'left',top:'top',zIndex:'z-index',
     })) {
       let v = st[k];
       if (v && typeof v === 'object') v = v[bp] ?? v.desktop;
@@ -408,9 +421,14 @@ function updateSelectionOverlay() {
   };
   canvas.addEventListener('scroll', onScroll, { once: false });
 }
+function targetForNode(n) {
+  const canvas = $('#canvas');
+  return canvas ? canvas.querySelector(`[data-zn-id="${n.id}"]`) : null;
+}
 function applyLiveStyle(el, n) {
+  if (!el) return;
   const bp = state.device;
-  ['position','left','top','width','height'].forEach(k => {
+  ['position','left','top','width','height','zIndex','opacity'].forEach(k => {
     const v = getStyleVal(n, k, bp);
     if (v) el.style.setProperty(k, v);
   });
@@ -425,6 +443,10 @@ function renderCanvas() {
     a.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); }, true);
     a.setAttribute('tabindex', '-1');
   });
+  canvas.addEventListener('click', (e) => {
+    const a = e.target.closest && e.target.closest('a');
+    if (a) e.preventDefault();
+  }, true);
   $$('[data-zn-id]', canvas).forEach(el => {
     el.onclick = (e) => {
       e.stopPropagation();
@@ -444,8 +466,15 @@ function renderCanvas() {
       snapshot();
       const found = findNode(state.doc.root, el.dataset.znId);
       if (found) {
+        const novo = newComponent(type);
+        // elemento novo começa relativo, sem herdar left/top absoluto do pai
+        novo.styles.position = { [state.device]: 'relative' };
+        novo.styles.left = { [state.device]: '0px' };
+        novo.styles.top = { [state.device]: '0px' };
         found.node.children = found.node.children || [];
-        found.node.children.push(newComponent(type));
+        found.node.children.push(novo);
+        state.selectedId = novo.id;
+        const ov = $('#selOverlay'); if (ov) ov.remove();
         renderCanvas(); renderProperties();
       }
     };
@@ -534,6 +563,13 @@ function renderProperties() {
           <input type="file" id="uploadFoto" accept="image/*" style="display:none">
         </label>
         ${n.src ? `<img src="${esc(n.src)}" style="width:100%;max-height:140px;object-fit:cover;border-radius:8px;margin-top:8px">` : ''}
+        <div class="prop" style="grid-template-columns:74px 1fr;margin-top:8px"><label>Transparência</label>
+          <input type="range" id="imgOpacity" min="0" max="100" value="${parseFloat(getVal('opacity')) * 100 || 100}"></div>
+        <div class="prop" style="grid-template-columns:74px 1fr"><label>Posição</label>
+          <select id="imgLayer">
+            <option value="front" ${String(getVal('zIndex')) !== '-1' ? 'selected' : ''}>Sobrepor (frente)</option>
+            <option value="back" ${String(getVal('zIndex')) === '-1' ? 'selected' : ''}>Ficar em baixo</option>
+          </select></div>
       </div>` : ''}
       ${rows}
       <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">
@@ -576,6 +612,18 @@ function renderProperties() {
   };
   $('#propText', el).oninput = () => { snapshot(); n.text = $('#propText', el).value; renderCanvas(); };
   $('#propSrc', el).oninput = () => { snapshot(); if (n.type === 'image' || n.type === 'video') n.src = $('#propSrc', el).value; else n.href = $('#propSrc', el).value; renderCanvas(); };
+  const imgOpacity = $('#imgOpacity', el), imgLayer = $('#imgLayer', el);
+  if (imgOpacity) imgOpacity.oninput = () => {
+    snapshot();
+    setStyleVal(n, 'opacity', String(Number(imgOpacity.value) / 100));
+    applyLiveStyle(targetForNode(n), n);
+  };
+  if (imgLayer) imgLayer.onchange = () => {
+    snapshot();
+    setStyleVal(n, 'zIndex', imgLayer.value === 'back' ? '-1' : '1');
+    setStyleVal(n, 'position', 'relative');
+    renderCanvas();
+  };
   const goPage = $('#propGoPage', el), pageSel = $('#propPageSelect', el);
   if (goPage && pageSel) {
     goPage.onchange = () => {
