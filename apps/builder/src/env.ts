@@ -14,4 +14,7 @@ export interface Env {
   NEXAS_RELAY_URL?: string;
   NEXAS_RELAY_TOKEN?: string;
   AI: Ai;
+  AI_API_KEY?: string;
+  AI_BASE_URL?: string;
+  AI_MODEL?: string;
 }
