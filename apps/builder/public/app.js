@@ -310,8 +310,14 @@ function updateSelectionOverlay() {
   canvas.appendChild(overlay);
 
   const n = found.node;
-  const rect = () => target.getBoundingClientRect();
-  const cRect = () => canvas.getBoundingClientRect();
+  // Cache do retângulo ORIGINAL, capturado antes de qualquer transform.
+  // Nunca reler getBoundingClientRect durante o arraste (elemento transformado
+  // devolve posições diferentes e causa o "pulo").
+  const r0 = target.getBoundingClientRect();
+  const c0 = canvas.getBoundingClientRect();
+  let dx = 0, dy = 0, w0 = r0.width, h0 = r0.height;
+  const baseLeft = r0.left - c0.left;
+  const baseTop = r0.top - c0.top;
 
   // Cria tag e alças UMA VEZ (recriá-las a cada frame quebra os handlers)
   const tag = document.createElement('div');
@@ -323,33 +329,40 @@ function updateSelectionOverlay() {
     overlay.appendChild(h);
   });
   function draw() {
-    const r = rect(), c = cRect();
-    overlay.style.left = (r.left - c.left) + 'px';
-    overlay.style.top = (r.top - c.top) + 'px';
-    overlay.style.width = r.width + 'px';
-    overlay.style.height = r.height + 'px';
+    overlay.style.left = (baseLeft + dx) + 'px';
+    overlay.style.top = (baseTop + dy) + 'px';
+    overlay.style.width = w0 + 'px';
+    overlay.style.height = h0 + 'px';
   }
   draw();
 
-  // MOVER com o mouse (arrastar dentro do overlay)
+  // MOVER com o mouse — usa transform (não altera o layout, sem pulos)
   overlay.onpointerdown = (e) => {
     if (e.target.dataset.handle) return; // alça cuida do resize
     e.preventDefault(); e.stopPropagation();
     snapshot();
     const startX = e.clientX, startY = e.clientY;
-    // Posição atual real do elemento no fluxo (evita salto ao torná-lo absoluto)
-    const tr = target.getBoundingClientRect(), cr = canvas.getBoundingClientRect();
-    const l0 = tr.left - cr.left, t0 = tr.top - cr.top;
-    n.styles.position = { [state.device]: 'absolute' };
-    setStyleVal(n, 'left', l0 + 'px'); setStyleVal(n, 'top', t0 + 'px');
-    applyLiveStyle(target, n); draw2();
+    const dx0 = dx, dy0 = dy;
     const move = (ev) => {
-      setStyleVal(n, 'left', (l0 + ev.clientX - startX) + 'px');
-      setStyleVal(n, 'top', (t0 + ev.clientY - startY) + 'px');
-      applyLiveStyle(target, n);
-      draw2();
+      dx = dx0 + (ev.clientX - startX);
+      dy = dy0 + (ev.clientY - startY);
+      target.style.transform = `translate3d(${dx}px,${dy}px,0)`;
+      draw();
     };
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); scheduleSave(); };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      // Só grava left/top no documento ao SOLTAR (evita reflow a cada frame)
+      const l0 = px(getStyleVal(n, 'left')) || 0;
+      const t0 = px(getStyleVal(n, 'top')) || 0;
+      setStyleVal(n, 'left', (l0 + dx) + 'px');
+      setStyleVal(n, 'top', (t0 + dy) + 'px');
+      target.style.transform = '';
+      dx = 0; dy = 0;
+      applyLiveStyle(target, n);
+      draw();
+      scheduleSave();
+    };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   };
@@ -361,22 +374,23 @@ function updateSelectionOverlay() {
       snapshot();
       const pos = h.dataset.handle;
       const startX = e.clientX, startY = e.clientY;
-      const w0 = rect().width, h0 = rect().height;
-      const l0 = px(getStyleVal(n, 'left')), t0 = px(getStyleVal(n, 'top'));
+      const sw = w0, sh = h0;
+      const l0 = px(getStyleVal(n, 'left')) || 0, t0 = px(getStyleVal(n, 'top')) || 0;
       n.styles.position = { [state.device]: 'absolute' };
       const move = (ev) => {
-        const dx = ev.clientX - startX, dy = ev.clientY - startY;
-        let w = w0, hh = h0, l = l0, t = t0;
-        if (pos.includes('e')) w = Math.max(20, w0 + dx);
-        if (pos.includes('s')) hh = Math.max(20, h0 + dy);
-        if (pos.includes('w')) { w = Math.max(20, w0 - dx); l = l0 + dx; }
-        if (pos.includes('n')) { hh = Math.max(20, h0 - dy); t = t0 + dy; }
-        setStyleVal(n, 'width', Math.round(w) + 'px');
-        setStyleVal(n, 'height', Math.round(hh) + 'px');
-        setStyleVal(n, 'left', Math.round(l) + 'px');
-        setStyleVal(n, 'top', Math.round(t) + 'px');
+        const mdx = ev.clientX - startX, mdy = ev.clientY - startY;
+        let nw = sw, nh = sh, nl = l0, nt = t0;
+        if (pos.includes('e')) nw = Math.max(20, sw + mdx);
+        if (pos.includes('s')) nh = Math.max(20, sh + mdy);
+        if (pos.includes('w')) { nw = Math.max(20, sw - mdx); nl = l0 + mdx; }
+        if (pos.includes('n')) { nh = Math.max(20, sh - mdy); nt = t0 + mdy; }
+        setStyleVal(n, 'width', Math.round(nw) + 'px');
+        setStyleVal(n, 'height', Math.round(nh) + 'px');
+        setStyleVal(n, 'left', Math.round(nl) + 'px');
+        setStyleVal(n, 'top', Math.round(nt) + 'px');
         applyLiveStyle(target, n);
-        draw2();
+        w0 = nw; h0 = nh;
+        draw();
       };
       const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); scheduleSave(); renderProperties(); };
       window.addEventListener('pointermove', move);
@@ -384,16 +398,14 @@ function updateSelectionOverlay() {
     };
   });
 
-  function draw2() {
+  // Atualiza overlay quando a janela rola ou redimensiona
+  const onScroll = () => {
     const r = target.getBoundingClientRect(), c = canvas.getBoundingClientRect();
     overlay.style.left = (r.left - c.left) + 'px';
     overlay.style.top = (r.top - c.top) + 'px';
     overlay.style.width = r.width + 'px';
     overlay.style.height = r.height + 'px';
-  }
-
-  // Atualiza overlay quando a janela rola ou redimensiona
-  const onScroll = () => draw2();
+  };
   canvas.addEventListener('scroll', onScroll, { once: false });
 }
 function applyLiveStyle(el, n) {
@@ -408,6 +420,11 @@ function renderCanvas() {
   const canvas = $('#canvas'); if (!canvas || !state.doc) return;
   canvas.className = state.device;
   canvas.innerHTML = nodeHTML(state.doc.root);
+  // No editor, links e botões NUNCA navegam — apenas selecionam.
+  $$('a, button', canvas).forEach(a => {
+    a.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); }, true);
+    a.setAttribute('tabindex', '-1');
+  });
   $$('[data-zn-id]', canvas).forEach(el => {
     el.onclick = (e) => {
       e.stopPropagation();
