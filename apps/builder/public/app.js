@@ -104,6 +104,7 @@ const TEMPLATE_CARDS = [
 ];
 
 async function loadDashboard() {
+  const ov = $('#selOverlay'); if (ov) ov.remove();
   try {
     const [p, t] = await Promise.all([api('/projects'), api('/templates')]);
     state.projects = p.projects || [];
@@ -326,7 +327,9 @@ function updateSelectionOverlay() {
   const overlay = document.createElement('div');
   overlay.id = 'selOverlay';
   overlay.className = 'sel-overlay';
-  canvas.appendChild(overlay);
+  // No body com position:fixed — o overflow do .ed-center cortaria as alças
+  // quando o elemento chega perto do painel lateral.
+  document.body.appendChild(overlay);
 
   const n = found.node;
   // Cache do retângulo ORIGINAL, capturado antes de qualquer transform.
@@ -348,9 +351,9 @@ function updateSelectionOverlay() {
     overlay.appendChild(h);
   });
   function draw() {
-    // -1px compensa a borda do overlay (box-sizing)
-    overlay.style.left = (baseLeft + dx - 1) + 'px';
-    overlay.style.top = (baseTop + dy - 1) + 'px';
+    // -1px compensa a borda (box-sizing). Coordenadas de viewport.
+    overlay.style.left = (r0.left + dx - 1) + 'px';
+    overlay.style.top = (r0.top + dy - 1) + 'px';
     overlay.style.width = w0 + 'px';
     overlay.style.height = h0 + 'px';
   }
@@ -400,7 +403,7 @@ function updateSelectionOverlay() {
       setStyleVal(n, 'top', topFinal + 'px');
       dx = 0; dy = 0;
       applyLiveStyle(target, n);
-      ajustarAltura();
+      requestAnimationFrame(() => ajustarAltura());
       updateSelectionOverlay();
       renderProperties();
       scheduleSave();
@@ -418,26 +421,36 @@ function updateSelectionOverlay() {
       snapshot();
       const pos = h.dataset.handle;
       const startX = e.clientX, startY = e.clientY;
-      const sw = w0, sh = h0;
+      const sv = state.canvasScale || 1;
+      // w0/h0 são visuais (overlay fora do wrapper escalado); o documento usa o espaço base
+      let docW = w0 / sv, docH = h0 / sv;
       const l0 = px(getStyleVal(n, 'left')) || 0, t0 = px(getStyleVal(n, 'top')) || 0;
+      const ehTexto = ['heading', 'text', 'button', 'link'].includes(n.type) || !!n.text;
+      const fs0 = ehTexto ? (px(getStyleVal(n, 'fontSize')) || parseFloat(getComputedStyle(target).fontSize) || 16) : 0;
+      const hInicial = docH;
       n.styles.position = { [state.device]: 'absolute' };
       const move = (ev) => {
-        const sv = state.canvasScale || 1;
         const mdx = (ev.clientX - startX) / sv, mdy = (ev.clientY - startY) / sv;
-        let nw = sw, nh = sh, nl = l0, nt = t0;
-        if (pos.includes('e')) nw = Math.max(20, sw + mdx);
-        if (pos.includes('s')) nh = Math.max(20, sh + mdy);
-        if (pos.includes('w')) { nw = Math.max(20, sw - mdx); nl = l0 + mdx; }
-        if (pos.includes('n')) { nh = Math.max(20, sh - mdy); nt = t0 + mdy; }
+        let nw = docW, nh = docH, nl = l0, nt = t0;
+        if (pos.includes('e')) nw = Math.max(20, docW + mdx);
+        if (pos.includes('s')) nh = Math.max(20, docH + mdy);
+        if (pos.includes('w')) { nw = Math.max(20, docW - mdx); nl = l0 + mdx; }
+        if (pos.includes('n')) { nh = Math.max(20, docH - mdy); nt = t0 + mdy; }
         setStyleVal(n, 'width', Math.round(nw) + 'px');
         setStyleVal(n, 'height', Math.round(nh) + 'px');
         setStyleVal(n, 'left', Math.round(nl) + 'px');
         setStyleVal(n, 'top', Math.round(nt) + 'px');
+        // Em texto, a alça redimensiona a fonte junto — é isso que dá a sensação
+        // de "esticar o texto" com o mouse.
+        if (ehTexto && hInicial > 0) {
+          const fator = Math.min(4, Math.max(0.25, nh / hInicial));
+          setStyleVal(n, 'fontSize', Math.max(8, Math.round(fs0 * fator)) + 'px');
+        }
         applyLiveStyle(target, n);
-        w0 = nw; h0 = nh;
+        w0 = nw * sv; h0 = nh * sv; // overlay volta para coordenadas visuais
         draw();
       };
-      const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); ajustarAltura(); scheduleSave(); renderProperties(); };
+      const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); requestAnimationFrame(() => ajustarAltura()); scheduleSave(); renderProperties(); };
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
     };
@@ -445,9 +458,9 @@ function updateSelectionOverlay() {
 
   // Atualiza overlay quando a janela rola ou redimensiona
   const onScroll = () => {
-    const r = target.getBoundingClientRect(), c = canvas.getBoundingClientRect();
-    overlay.style.left = (r.left - c.left) + 'px';
-    overlay.style.top = (r.top - c.top) + 'px';
+    const r = target.getBoundingClientRect();
+    overlay.style.left = r.left + 'px';
+    overlay.style.top = r.top + 'px';
     overlay.style.width = r.width + 'px';
     overlay.style.height = r.height + 'px';
   };
@@ -460,9 +473,10 @@ function targetForNode(n) {
 function applyLiveStyle(el, n) {
   if (!el) return;
   const bp = state.device;
-  ['position','left','top','width','height','margin','zIndex','opacity'].forEach(k => {
+  ['position','left','top','width','height','margin','fontSize','zIndex','opacity'].forEach(k => {
     const v = getStyleVal(n, k, bp);
-    if (v) el.style.setProperty(k, v);
+    // setProperty exige kebab-case: fontSize -> font-size, zIndex -> z-index
+    if (v) el.style.setProperty(k.replace(/([A-Z])/g, '-$1').toLowerCase(), String(v));
   });
 }
 
