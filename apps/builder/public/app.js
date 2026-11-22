@@ -1058,6 +1058,7 @@ function editorView() {
       </div>
       <button class="btn sm ghost" id="undoBtn" title="Desfazer">↶</button>
       <button class="btn sm ghost" id="redoBtn" title="Refazer">↷</button>
+      <button class="btn sm ghost" id="aiSiteBtn" title="Agente de IA no site publicado">🤖 Site</button>
       <button class="btn sm" id="previewBtn">Pré-visualizar</button>
       <button class="btn sm" id="publishBtn">Publicar</button>
       <button class="btn sm primary" id="finishBtn">Finalizar site</button>
@@ -1261,6 +1262,22 @@ function bindEditor() {
   });
   $('#undoBtn').onclick = undo; $('#redoBtn').onclick = redo;
   $('#backBtn').onclick = () => { state.current = null; state.doc = null; loadDashboard(); };
+  const aiSiteBtn = $('#aiSiteBtn');
+  if (aiSiteBtn) {
+    const pintar = () => {
+      const on = !!state.doc?.meta?.aiWidget;
+      aiSiteBtn.textContent = on ? '🤖 Site: sim' : '🤖 Site';
+      aiSiteBtn.style.borderColor = on ? 'var(--green)' : '';
+    };
+    pintar();
+    aiSiteBtn.onclick = () => {
+      state.doc.meta = state.doc.meta || {};
+      state.doc.meta.aiWidget = !state.doc.meta.aiWidget;
+      state.doc.meta.aiBrand = state.doc.meta.aiBrand || state.current?.name || 'Assistente';
+      snapshot(); pintar(); scheduleSave();
+      toast(state.doc.meta.aiWidget ? 'Agente ativado no site publicado.' : 'Agente removido do site.');
+    };
+  }
   $('#previewBtn').onclick = async () => {
     const btn = $('#previewBtn'); btn.disabled = true; btn.textContent = 'Abrindo...';
     try {

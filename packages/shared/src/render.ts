@@ -54,12 +54,8 @@ function declsFor(styles: ElementStyles, bp: keyof typeof BREAKPOINTS): string {
   for (const [key, cssProp] of Object.entries(STYLE_KEYS)) {
     let val = resolve((styles as any)[key], bp);
     if (val === undefined || val === '') continue;
-    // left/top em px são relativos ao canvas do editor (largura variável).
-    // Convertemos para % para que o preview e o site publicado保持一致.
-    if ((key === 'left' || key === 'right') && /px$/.test(String(val))) {
-      const num = parseFloat(String(val));
-      if (Number.isFinite(num)) val = (num / 1100 * 100).toFixed(3) + '%';
-    }
+    // left/top ficam em px do canvas-base (1100px). O site publicado usa o
+    // mesmo canvas escalado do editor — converter para % quebraria o relative.
     out.push(`${cssProp}:${cssSafe(val)}`);
   }
   for (const [k, v] of Object.entries(styles)) {
@@ -210,6 +206,31 @@ const PRO_CSS = `
 @media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none}.anim-fade-up,.anim-fade-down,.anim-slide-left,.anim-slide-right,.anim-zoom,.anim-float,.anim-bob,.anim-pulse,.anim-glow,.anim-tilt,.anim-spin,.anim-gradient,.card-pro::after{animation:none!important}}
 `;
 
+const SITE_AI_WIDGET = (brand: string): string => `<style>
+.zn-ai-fab{position:fixed;right:20px;bottom:20px;z-index:99999;width:56px;height:56px;border-radius:50%;border:0;background:linear-gradient(135deg,#6366f1,#a855f7);color:#fff;font-size:24px;cursor:pointer;box-shadow:0 12px 34px rgba(99,102,241,.5);transition:transform .2s}
+.zn-ai-fab:hover{transform:scale(1.08)}
+.zn-ai-panel{position:fixed;right:20px;bottom:88px;z-index:99999;width:min(350px,calc(100vw - 40px));max-height:min(520px,72vh);background:#111119;color:#f4f4f5;border:1px solid #ffffff22;border-radius:16px;box-shadow:0 24px 70px #0009;display:flex;flex-direction:column;overflow:hidden;font-family:inherit}
+.zn-ai-panel[hidden]{display:none}
+.zn-ai-head{display:flex;align-items:center;justify-content:space-between;padding:13px 15px;border-bottom:1px solid #ffffff18;font-weight:700;font-size:13px}
+.zn-ai-head button{background:none;border:0;color:#a1a1aa;font-size:20px;cursor:pointer}
+.zn-ai-msgs{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:9px;font-size:12.5px;line-height:1.55}
+.zn-ai-msg{max-width:88%;padding:9px 12px;border-radius:11px;white-space:pre-wrap;word-break:break-word}
+.zn-ai-msg.bot{background:#ffffff12;border:1px solid #ffffff18}
+.zn-ai-msg.user{background:#6366f1;color:#fff;align-self:flex-end}
+.zn-ai-input{display:flex;gap:7px;padding:11px;border-top:1px solid #ffffff18}
+.zn-ai-input input{flex:1;min-width:0;background:#ffffff0d;border:1px solid #ffffff24;border-radius:9px;padding:9px 11px;color:#fff;outline:none;font:inherit;font-size:12px}
+.zn-ai-input button{background:#6366f1;color:#fff;border:0;border-radius:9px;width:38px;cursor:pointer;font-size:15px}
+</style>
+<button class="zn-ai-fab" id="znAiFab" aria-label="Assistente">✨</button>
+<div class="zn-ai-panel" id="znAiPanel" hidden>
+<div class="zn-ai-head"><span>✨ ${esc(brand || 'Assistente')}</span><button id="znAiClose" aria-label="Fechar">×</button></div>
+<div class="zn-ai-msgs" id="znAiMsgs"><div class="zn-ai-msg bot">Olá! Sou o assistente deste site. Como posso ajudar?</div></div>
+<div class="zn-ai-input"><input id="znAiInput" placeholder="Escreva sua mensagem..."><button id="znAiSend">➤</button></div>
+</div>
+<script>(function(){var f=document.getElementById('znAiFab'),p=document.getElementById('znAiPanel'),i=document.getElementById('znAiInput'),m=document.getElementById('znAiMsgs');if(!f||!p)return;function msg(t,x){var d=document.createElement('div');d.className='zn-ai-msg '+t;d.textContent=x;m.appendChild(d);m.scrollTop=m.scrollHeight;return d}f.onclick=function(){p.hidden=!p.hidden};document.getElementById('znAiClose').onclick=function(){p.hidden=true};async function send(){var t=(i.value||'').trim();if(!t)return;i.value='';msg('user',t);var w=msg('bot','Pensando...');try{var r=await fetch('https://zknsites-api.gabrielrobin63.workers.dev/api/ai/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:t,site:${JSON.stringify(brand || '')}})});var j=await r.json();w.textContent=j.ok?j.reply:(j.message||'Tente novamente em instantes.')}catch(e){w.textContent='Sem conexão no momento.'}}document.getElementById('znAiSend').onclick=send;i.onkeydown=function(e){if(e.key==='Enter'){e.preventDefault();send()}}})()</script>`;
+
+const SCALE_JS = `<script>(function(){function fit(){var v=document.querySelector('.zn-viewport'),c=document.querySelector('.zn-canvas');if(!v||!c)return;var s=v.clientWidth/1100;c.style.transform='scale('+s+')';v.style.height=Math.ceil(c.scrollHeight*s)+'px'}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fit);else fit();window.addEventListener('resize',fit);if('ResizeObserver'in window)new ResizeObserver(fit).observe(document.body)})()</script>`;
+
 const REVEAL_JS = `<script>(function(){var els=document.querySelectorAll('.reveal');if(!('IntersectionObserver' in window)||!els.length){els.forEach(function(e){e.classList.add('is-visible')});return}var o=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('is-visible');o.unobserve(e.target)}})},{threshold:.12,rootMargin:'0px 0px -40px 0px'});els.forEach(function(e){o.observe(e)})})</script>`;
 
 export function renderPage(doc: PageDocument, pageLinks: Record<string, string> = {}, previewToken = ''): RenderedSite {
@@ -246,11 +267,19 @@ a{color:inherit}
 ${doc.meta.ogImage ? `<meta property="og:image" content="${esc(doc.meta.ogImage)}">` : ''}
 ${doc.meta.favicon ? `<link rel="icon" href="${esc(doc.meta.favicon)}">` : ''}
 ${doc.meta.fontUrl ? `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="${esc(doc.meta.fontUrl)}" rel="stylesheet">` : ''}
-<style>${css}</style>
+<style>${css}
+/* viewport escalado — o preview e o publicado usam o mesmo canvas do editor */
+.zn-viewport{width:100%;overflow:hidden;position:relative}
+.zn-canvas{width:1100px;transform-origin:top left;will-change:transform}
+</style>
 </head>
 <body>
+<div class="zn-viewport"><div class="zn-canvas">
 ${renderNode(doc.root, 'desktop', '')}
+</div></div>
+${SCALE_JS}
 ${REVEAL_JS}
+${doc.meta.aiWidget ? SITE_AI_WIDGET(doc.meta.aiBrand || doc.meta.title || 'Assistente') : ''}
 </body>
 </html>`;
 

@@ -127,6 +127,8 @@ export interface PageDocument {
     ogImage?: string;
     customCss?: string;
     fontUrl?: string;
+    aiWidget?: boolean;
+    aiBrand?: string;
   };
 }
 
