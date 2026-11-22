@@ -431,11 +431,18 @@ function updateSelectionOverlay() {
       const sv = state.canvasScale || 1;
       // w0/h0 são visuais (overlay fora do wrapper escalado); o documento usa o espaço base
       let docW = w0 / sv, docH = h0 / sv;
-      const l0 = px(getStyleVal(n, 'left')) || 0, t0 = px(getStyleVal(n, 'top')) || 0;
+      // Posição REAL antes de virar absolute: usar os styles gravados (ou 0) fazia
+      // o elemento saltar para a origem do offsetParent no primeiro movimento.
+      const rAtual = target.getBoundingClientRect();
+      const parent = target.offsetParent || canvas;
+      const pr = parent.getBoundingClientRect();
+      const l0 = Math.round((rAtual.left - pr.left - parent.clientLeft) / sv);
+      const t0 = Math.round((rAtual.top - pr.top - parent.clientTop) / sv);
       const ehTexto = ['heading', 'text', 'button', 'link'].includes(n.type) || !!n.text;
       const fs0 = ehTexto ? (px(getStyleVal(n, 'fontSize')) || parseFloat(getComputedStyle(target).fontSize) || 16) : 0;
       const hInicial = docH;
-      n.styles.position = { [state.device]: 'absolute' };
+      setStyleVal(n, 'position', 'absolute');
+      setStyleVal(n, 'margin', '0');
       const move = (ev) => {
         const mdx = (ev.clientX - startX) / sv, mdy = (ev.clientY - startY) / sv;
         let nw = docW, nh = docH, nl = l0, nt = t0;
@@ -982,9 +989,95 @@ function editorView() {
       <div class="ed-center"><div class="canvas-wrap"><div id="canvas"></div></div></div>
       <aside class="ed-right"><div id="properties"></div></aside>
     </div>
+    <button class="ai-fab" id="aiFab" title="Assistente de IA">✨</button>
+    <div class="ai-panel hidden" id="aiPanel">
+      <div class="ai-head"><span>✨ Assistente de IA</span><button id="aiClose" title="Fechar">×</button></div>
+      <div class="ai-msgs" id="aiMsgs">
+        <div class="ai-msg bot">Olá! Posso sugerir textos, cores e componentes para seu site. Me diga o que você quer criar.</div>
+      </div>
+      <div class="ai-input"><input id="aiInput" placeholder="Ex: sugira um título impactante..."><button id="aiSend" title="Enviar">➤</button></div>
+    </div>
   </div>`;
 }
+// ===== ASSISTENTE DE IA =====
+function contextoIA() {
+  const els = [];
+  const walk = (n) => {
+    if (!n || n === state.doc.root) { (n?.children || []).forEach(walk); return; }
+    els.push({ type: n.type, name: n.name, text: String(n.text || '').slice(0, 60) });
+    (n.children || []).forEach(walk);
+  };
+  if (state.doc?.root) walk(state.doc.root);
+  return { projectName: state.current?.name, device: state.device, elements: els };
+}
+function addAiMsg(tipo, texto) {
+  const box = $('#aiMsgs'); if (!box) return null;
+  const d = document.createElement('div');
+  d.className = 'ai-msg ' + tipo; d.textContent = texto;
+  box.appendChild(d); box.scrollTop = box.scrollHeight;
+  return d;
+}
+function aplicarAcoesIA(reply) {
+  const txt = String(reply);
+  let bruto = '';
+  const blo = txt.lastIndexOf('```json');
+  if (blo >= 0 && txt.lastIndexOf('```') > blo) {
+    bruto = txt.slice(blo + 7, txt.lastIndexOf('```'));
+  } else {
+    const i = txt.lastIndexOf('{'), j = txt.lastIndexOf('}');
+    if (i >= 0 && j > i) bruto = txt.slice(i, j + 1);
+  }
+  if (!bruto.includes('"action"')) return;
+  let a; try { a = JSON.parse(bruto); } catch { return; }
+  if (!a || !a.action) return;
+  if (a.action === 'add') {
+    snapshot();
+    const novo = newComponent(String(a.component || 'text'));
+    novo.styles.position = { [state.device]: 'relative' };
+    state.doc.root.children = state.doc.root.children || [];
+    state.doc.root.children.push(novo);
+    renderCanvas(); selectNode(novo.id); renderTree(); scheduleSave();
+    toast('Componente adicionado pela IA');
+  } else if (a.action === 'color' && /^#[0-9a-f]{6}$/i.test(a.color)) {
+    const found = state.selectedId ? findNode(state.doc.root, state.selectedId) : null;
+    if (found && found.node !== state.doc.root) {
+      snapshot(); setStyleVal(found.node, 'background', a.color); renderCanvas(); scheduleSave();
+      toast('Cor aplicada pela IA');
+    } else toast('Selecione um elemento para aplicar a cor');
+  } else if (a.action === 'text') {
+    const found = state.selectedId ? findNode(state.doc.root, state.selectedId) : null;
+    if (found && found.node.text !== undefined) {
+      snapshot(); found.node.text = String(a.text).slice(0, 200); renderCanvas(); renderProperties(); scheduleSave();
+      toast('Texto aplicado pela IA');
+    } else toast('Selecione um elemento de texto');
+  }
+}
+function bindAI() {
+  const fab = $('#aiFab'), panel = $('#aiPanel'), input = $('#aiInput');
+  if (!fab || !panel) return;
+  const abrir = (v) => panel.classList.toggle('hidden', !v);
+  fab.onclick = () => abrir(panel.classList.contains('hidden'));
+  $('#aiClose').onclick = () => abrir(false);
+  const enviar = async () => {
+    const texto = (input.value || '').trim();
+    if (!texto) return;
+    input.value = '';
+    addAiMsg('user', texto);
+    const wait = addAiMsg('bot', 'Pensando...');
+    try {
+      const r = await api('/ai/assist', 'POST', { message: texto, context: contextoIA() });
+      if (wait) wait.textContent = r.reply || 'Sem resposta.';
+      aplicarAcoesIA(r.reply || '');
+    } catch (e) {
+      if (wait) wait.textContent = 'Erro: ' + e.message;
+    }
+  };
+  $('#aiSend').onclick = enviar;
+  input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); enviar(); } };
+}
+
 function bindEditor() {
+  bindAI();
   $('#edName').onchange = async (e) => {
     try { await api(`/projects/${state.current.id}`, 'PUT', { name: e.target.value, seo_title: e.target.value }); toast('Nome salvo.'); } catch (err) { toast(err.message); }
   };

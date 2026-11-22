@@ -76,6 +76,47 @@ export default {
         return json({ ok: true, assets: rows.results || [] });
       }
 
+      // Agente de IA — ajuda a construir o site dentro do editor
+      if (path === '/ai/assist' && method === 'POST') {
+        const u = await currentUser(env, request);
+        if (!u) return err('Não autorizado.', 401);
+        if (!await rateLimit(env, `ai:${u.id}`, 40, 3600)) return err('Limite de consultas de IA atingido. Tente em uma hora.', 429);
+        const message = String(body.message || '').trim().slice(0, 1200);
+        if (!message) return err('Escreva uma mensagem.', 400);
+        const context = body.context && typeof body.context === 'object' ? body.context : {};
+        const elementos = Array.isArray(context.elements) ? context.elements.slice(0, 14) : [];
+
+        const system = [
+          'Você é o assistente de construção de sites do ZKNSites, um editor visual.',
+          'Responda SEMPRE em português do Brasil, de forma curta e prática (no máximo 4 frases).',
+          'Ajude com ideias de texto, cores, layout e estrutura para o site do usuário.',
+          'Quando o pedido resultar em uma mudança concreta no editor, inclua no final da resposta um bloco de código json válido com a ação correspondente.',
+          'Ações possíveis:',
+          '{"action":"add","component":"heading|text|button|link|image|section|divider|spacer"}',
+          '{"action":"color","color":"#RRGGBB"}',
+          '{"action":"text","text":"novo texto"}',
+          'Use apenas uma ação por resposta. Não invente IDs.',
+          `Contexto: projeto "${String(context.projectName || 'sem nome').slice(0, 80)}". Elementos atuais: ${JSON.stringify(elementos)}.`,
+          `Dispositivo em edição: ${String(context.device || 'desktop')}.`,
+        ].join('\n');
+
+        try {
+          const resp = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+            messages: [
+              { role: 'system', content: system },
+              { role: 'user', content: message },
+            ],
+            max_tokens: 500,
+            temperature: 0.6,
+          });
+          const reply = String((resp as any)?.response || '').trim();
+          return json({ ok: true, reply: reply || 'Não consegui gerar uma sugestão. Tente novamente.' });
+        } catch (e: any) {
+          console.error('[AI]', e);
+          return err('O assistente está temporariamente indisponível.', 503);
+        }
+      }
+
       // Webhook da Nexas (público) — confirma pagamento e libera o site
       if (path === '/webhook/nexas' && method === 'POST') {
         const externalId = String(body.external_id || body.transactionId || body.externalId || '');

@@ -140,6 +140,20 @@ a{color:var(--accent);text-decoration:none}
 .ctx-menu button{display:flex;align-items:center;gap:8px;width:100%;padding:9px 11px;background:transparent;border:0;color:var(--text);font:12px var(--font);text-align:left;border-radius:7px;cursor:pointer}
 .ctx-menu button:hover{background:var(--panel-2)}
 .ctx-menu button[data-act="delete"]{color:#ff7a7a}
+/* ===== Assistente de IA (canto inferior esquerdo) ===== */
+.ai-fab{position:fixed;left:16px;bottom:16px;z-index:1300;width:46px;height:46px;border-radius:50%;border:1px solid var(--line-2);background:linear-gradient(135deg,#5b8cff,#a56bff);color:#fff;font-size:20px;cursor:pointer;box-shadow:0 6px 22px rgba(0,0,0,.45);transition:.16s}
+.ai-fab:hover{transform:scale(1.07)}
+.ai-panel{position:fixed;left:16px;bottom:72px;z-index:1300;width:330px;max-height:min(520px,70vh);background:var(--panel);border:1px solid var(--line-2);border-radius:14px;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden}
+.ai-head{display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border-bottom:1px solid var(--line);font-weight:700;font-size:12px}
+.ai-head button{background:transparent;border:0;color:var(--muted);font-size:20px;cursor:pointer;line-height:1}
+.ai-msgs{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;min-height:90px}
+.ai-msg{max-width:88%;padding:9px 11px;border-radius:10px;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.ai-msg.bot{background:var(--bg-2);border:1px solid var(--line)}
+.ai-msg.user{background:var(--accent);color:#fff;align-self:flex-end}
+.ai-input{display:flex;gap:6px;padding:10px;border-top:1px solid var(--line)}
+.ai-input input{flex:1;min-width:0;background:var(--bg-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;color:var(--text);outline:0;font-size:11px}
+.ai-input input:focus{border-color:var(--accent)}
+.ai-input button{background:var(--accent);color:#fff;border:0;border-radius:8px;width:36px;cursor:pointer;font-size:14px}
 @keyframes fadeIn{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
 .modal{position:fixed;inset:0;background:rgba(4,8,18,.72);backdrop-filter:blur(5px);display:grid;place-items:center;z-index:150;padding:20px}
 .modal-card{background:var(--panel);border:1px solid var(--line-2);border-radius:var(--radius-lg);width:min(100%,480px);padding:26px;box-shadow:var(--shadow)}

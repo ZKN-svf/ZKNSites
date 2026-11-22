@@ -13,4 +13,5 @@ export interface Env {
   BUILDER_URL: string;
   NEXAS_RELAY_URL?: string;
   NEXAS_RELAY_TOKEN?: string;
+  AI: Ai;
 }
