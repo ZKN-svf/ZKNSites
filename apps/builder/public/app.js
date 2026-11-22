@@ -1142,6 +1142,15 @@ function bindAI() {
   input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); enviar(); } };
 }
 
+async function publicarSite() {
+  const b = $('#publishBtn');
+  if (b) { b.disabled = true; b.textContent = 'Publicando...'; }
+  try {
+    const r = await api(`/projects/${state.current.id}/publish`, 'POST', {});
+    toast('Site publicado!'); window.open(r.url, '_blank');
+  } catch (e) { toast(e.message); }
+  if (b) { b.disabled = false; b.textContent = 'Publicar'; }
+}
 function bindEditor() {
   bindAI();
   $('#edName').onchange = async (e) => {
@@ -1162,17 +1171,23 @@ function bindEditor() {
     } catch (e) { toast(e.message); }
     btn.disabled = false; btn.textContent = 'Pré-visualizar';
   };
-  $('#finishBtn').onclick = () => showCheckout();
+  $('#finishBtn').onclick = async () => {
+    // Sincroniza o plano direto do servidor (pode ter mudado desde o login)
+    try {
+      const r = await api('/auth/me');
+      state.user = r.user;
+      localStorage.setItem(USER_KEY, JSON.stringify(r.user));
+    } catch (_) {}
+    if (state.user?.plan && state.user.plan !== 'free') {
+      toast('Plano ativo — publicando sem cobrança.');
+      publicarSite();
+    } else {
+      showCheckout();
+    }
+  };
   $('#addPageBtn').onclick = addPage;
   renderPageTabs();
-  $('#publishBtn').onclick = async () => {
-    const b = $('#publishBtn'); b.disabled = true; b.textContent = 'Publicando...';
-    try {
-      const r = await api(`/projects/${state.current.id}/publish`, 'POST', {});
-      toast('Site publicado!'); window.open(r.url, '_blank');
-    } catch (e) { toast(e.message); }
-    b.disabled = false; b.textContent = 'Publicar';
-  };
+  $('#publishBtn').onclick = publicarSite;
   renderTree(); renderComponents();
 }
 
