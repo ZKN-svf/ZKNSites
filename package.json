@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "build": "npm run build --workspace=@zknsites/builder && npm run build --workspace=@zknsites/publisher",
+    "build:app": "node scripts/build-app.mjs",
     "dev:api": "wrangler dev --config apps/builder/wrangler.toml",
     "deploy:api": "wrangler deploy --config apps/builder/wrangler.toml",
     "deploy:publisher": "wrangler deploy --config apps/publisher/wrangler.toml",

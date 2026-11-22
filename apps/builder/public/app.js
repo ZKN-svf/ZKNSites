@@ -318,6 +318,8 @@ function updateSelectionOverlay() {
   const canvas = $('#canvas');
   const found = state.selectedId ? findNode(state.doc.root, state.selectedId) : null;
   if (!found || !canvas) return;
+  // A Página é o fundo fixo: nunca é arrastada nem redimensionada.
+  if (found.node === state.doc.root || found.node.id === 'root') return;
   const target = canvas.querySelector(`[data-zn-id="${state.selectedId}"]`);
   if (!target) return;
 
@@ -356,6 +358,7 @@ function updateSelectionOverlay() {
 
   // MOVER: pela tag OU arrastando o próprio elemento (ver handler no canvas)
   moverSelecionado = (e) => {
+    if (n === state.doc.root || n.id === 'root') return;
     if (e.button !== 0) return;
     if (e.target.closest && e.target.closest('.sel-handle')) return; // alça cuida do resize
     e.preventDefault(); e.stopPropagation();
@@ -368,7 +371,9 @@ function updateSelectionOverlay() {
       if (!moved && Math.abs(ndx) + Math.abs(ndy) < 3) return; // ignora clique simples
       moved = true;
       dx = ndx; dy = ndy;
-      target.style.transform = `translate3d(${dx}px,${dy}px,0)`;
+      // O wrapper está escalado: compensa para o mouse andar 1:1 na tela
+      const sv = state.canvasScale || 1;
+      target.style.transform = `translate3d(${dx / sv}px,${dy / sv}px,0)`;
       draw();
     };
     const up = () => {
@@ -382,14 +387,15 @@ function updateSelectionOverlay() {
       // elemento sai do fluxo e passa a ser absolute dentro de outro pai.
       const parent = target.offsetParent || canvas;
       const pr = parent.getBoundingClientRect();
-      const leftFinal = Math.round(rFinal.left - pr.left - parent.clientLeft);
-      const topFinal = Math.round(rFinal.top - pr.top - parent.clientTop);
+      const s = state.canvasScale || 1;
+      const leftFinal = Math.round((rFinal.left - pr.left - parent.clientLeft) / s);
+      const topFinal = Math.round((rFinal.top - pr.top - parent.clientTop) / s);
       snapshot();
       setStyleVal(n, 'position', 'absolute');
       // margins padrão (ex: h1 tem ~37px) somam ao top quando vira absolute
       setStyleVal(n, 'margin', '0');
       // sem largura explícita o elemento encolhe ao sair do fluxo
-      setStyleVal(n, 'width', Math.round(rFinal.width) + 'px');
+      setStyleVal(n, 'width', Math.round(rFinal.width / s) + 'px');
       setStyleVal(n, 'left', leftFinal + 'px');
       setStyleVal(n, 'top', topFinal + 'px');
       dx = 0; dy = 0;
@@ -406,6 +412,7 @@ function updateSelectionOverlay() {
   // REDIMENSIONAR com as alças
   $$('.sel-handle', overlay).forEach(h => {
     h.onpointerdown = (e) => {
+      if (n === state.doc.root || n.id === 'root') return;
       e.preventDefault(); e.stopPropagation();
       snapshot();
       const pos = h.dataset.handle;
@@ -414,7 +421,8 @@ function updateSelectionOverlay() {
       const l0 = px(getStyleVal(n, 'left')) || 0, t0 = px(getStyleVal(n, 'top')) || 0;
       n.styles.position = { [state.device]: 'absolute' };
       const move = (ev) => {
-        const mdx = ev.clientX - startX, mdy = ev.clientY - startY;
+        const sv = state.canvasScale || 1;
+        const mdx = (ev.clientX - startX) / sv, mdy = (ev.clientY - startY) / sv;
         let nw = sw, nh = sh, nl = l0, nt = t0;
         if (pos.includes('e')) nw = Math.max(20, sw + mdx);
         if (pos.includes('s')) nh = Math.max(20, sh + mdy);
@@ -473,6 +481,18 @@ function selectNode(id) {
   updateSelectionOverlay();
 }
 
+// Recalcula o autoscaling quando a janela muda de tamanho
+function ajustarEscala() {
+  const canvas = $('#canvas');
+  const scaleEl = canvas ? $('#canvasScale', canvas) : null;
+  if (!canvas || !scaleEl) return;
+  const s = Math.max(0.1, canvas.clientWidth / 1100);
+  scaleEl.style.transform = `scale(${s})`;
+  state.canvasScale = s;
+  updateSelectionOverlay();
+}
+window.addEventListener('resize', ajustarEscala);
+
 let canvasBound = false;
 function renderCanvas() {
   const canvas = $('#canvas'); if (!canvas || !state.doc) return;
@@ -480,7 +500,16 @@ function renderCanvas() {
   const ov = $('#selOverlay'); if (ov) ov.remove();
 
   canvas.className = state.device;
-  canvas.innerHTML = nodeHTML(state.doc.root);
+  // Wrapper com largura-base fixa: tudo escala junto (posições, fontes, fotos)
+  // para desktop, tablet e celular — autoscaling em todas as plataformas.
+  canvas.innerHTML = '<div id="canvasScale">' + nodeHTML(state.doc.root) + '</div>';
+  const scaleEl = $('#canvasScale', canvas);
+  const BASE_W = 1100, BASE_H = 900;
+  const scale = Math.max(0.1, canvas.clientWidth / BASE_W);
+  scaleEl.style.width = BASE_W + 'px';
+  scaleEl.style.height = BASE_H + 'px';
+  scaleEl.style.transform = `scale(${scale})`;
+  state.canvasScale = scale;
   canvas.style.position = 'relative';
   canvas.style.minHeight = '900px';
 
@@ -532,8 +561,9 @@ function renderCanvas() {
       snapshot();
       const novo = newComponent(type);
       const cr = canvas.getBoundingClientRect();
-      const x = Math.max(0, Math.round(e.clientX - cr.left - 30));
-      const y = Math.max(0, Math.round(e.clientY - cr.top - 15));
+      const s = state.canvasScale || 1;
+      const x = Math.max(0, Math.round((e.clientX - cr.left - 30) / s));
+      const y = Math.max(0, Math.round((e.clientY - cr.top - 15) / s));
       novo.styles.position = { [state.device]: 'absolute' };
       novo.styles.left = { [state.device]: x + 'px' };
       novo.styles.top = { [state.device]: y + 'px' };
@@ -624,6 +654,21 @@ function renderProperties() {
     return;
   }
   const n = found.node, bp = state.device;
+  // A Página é o fundo fixo — mostra só a cor de fundo, sem mover/redimensionar
+  if (n === state.doc.root || n.id === 'root') {
+    const bg = String(n.styles?.background?.[bp] ?? n.styles?.background?.desktop ?? '#20242e').replace(/"/g, '&quot;');
+    el.innerHTML = `<div class="panel-sec"><h3>Página (fundo fixo)</h3><div class="panel-content">
+      <p style="color:var(--muted);font-size:11px;line-height:1.5;margin:0 0 10px">Esta é a base do site. Ela não pode ser movida nem redimensionada. Os elementos são colocados por cima e escalam automaticamente para desktop, tablet e celular.</p>
+      <div class="prop"><label>Cor do fundo</label><input id="propPageBg" type="color" value="${bg}"></div>
+    </div></div>`;
+    const bgInput = $('#propPageBg', el);
+    if (bgInput) bgInput.oninput = () => {
+      snapshot(); setStyleVal(n, 'background', bgInput.value);
+      const scaleEl = $('#canvasScale'); if (scaleEl) scaleEl.style.background = bgInput.value;
+      scheduleSave();
+    };
+    return;
+  }
   const getVal = (k) => {
     const v = n.styles?.[k];
     return v && typeof v === 'object' ? (v[bp] ?? v.desktop ?? '') : (v ?? '');
